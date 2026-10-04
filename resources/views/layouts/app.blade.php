@@ -94,9 +94,6 @@
                 <!-- Brand Logo & Active Tournament Selector -->
                 <div class="flex items-center space-x-4">
                     <a href="{{ route('landing') }}" class="flex items-center space-x-2">
-                        <div class="w-9 h-9 bg-slate-900 text-white flex items-center justify-center font-black text-lg rounded-lg shadow-sm">
-                            C
-                        </div>
                         <span class="font-extrabold text-xl tracking-tight text-slate-900">Cancha<span class="text-blue-900">X</span></span>
                     </a>
 

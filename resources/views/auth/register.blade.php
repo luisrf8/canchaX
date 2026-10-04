@@ -4,9 +4,6 @@
 <div class="min-h-[85vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
     <div class="max-w-lg w-full space-y-8 bg-white p-8 rounded-2xl border border-slate-200 shadow-xl">
         <div class="text-center space-y-2">
-            <div class="w-12 h-12 bg-blue-900 text-white flex items-center justify-center font-black text-2xl rounded-xl mx-auto shadow-md">
-                C
-            </div>
             <h2 class="text-2xl font-black text-slate-900 tracking-tight">Crear una Cuenta en CanchaX</h2>
             <p class="text-xs text-slate-500">Regístrate como Organizador para publicar torneos o como Participante.</p>
         </div>
