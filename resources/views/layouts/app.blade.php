@@ -31,6 +31,21 @@
         [x-cloak] { display: none !important; }
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #ffffff; color: #0f172a; }
         .tabular-nums { font-variant-numeric: tabular-nums; }
+        @keyframes progressIndeterminate {
+            0% { transform: translateX(-100%); width: 25%; }
+            50% { transform: translateX(50%); width: 65%; }
+            100% { transform: translateX(200%); width: 25%; }
+        }
+        .animate-progress-fast {
+            animation: progressIndeterminate 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.35; transform: scale(1); }
+            50% { opacity: 0.75; transform: scale(1.08); }
+        }
+        .animate-pulse-glow {
+            animation: pulseGlow 2.2s ease-in-out infinite;
+        }
     </style>
 </head>
 <body class="bg-white text-slate-900 min-h-screen flex flex-col antialiased" x-data="{
@@ -42,12 +57,36 @@
     toastVisible: false,
     toastMsg: '',
     toastTitle: '',
+    globalLoading: false,
+    loadingTitle: 'Cargando...',
+    loadingSubtitle: 'Por favor espera un momento...',
+    loadingTimeout: null,
 
     init() {
         @auth
             this.fetchNotifications();
             this.connectSSE();
         @endauth
+
+        window.addEventListener('show-global-loading', (e) => {
+            this.startLoading(e.detail?.title, e.detail?.subtitle);
+        });
+        window.addEventListener('hide-global-loading', () => {
+            this.stopLoading();
+        });
+    },
+    startLoading(title = 'Cargando...', subtitle = 'Por favor espera un momento...') {
+        this.loadingTitle = title || 'Cargando...';
+        this.loadingSubtitle = subtitle || 'Por favor espera un momento...';
+        this.globalLoading = true;
+        clearTimeout(this.loadingTimeout);
+        this.loadingTimeout = setTimeout(() => {
+            this.globalLoading = false;
+        }, 15000);
+    },
+    stopLoading() {
+        clearTimeout(this.loadingTimeout);
+        this.globalLoading = false;
     },
     fetchNotifications() {
         fetch('{{ route('notifications.index') }}')
@@ -291,6 +330,8 @@
                 <a href="{{ route('login') }}" class="hover:text-slate-900">Organizar</a>
             </div>
         </div>
+    </footer>
+
     <!-- REALTIME FLOATING TOAST ALERT -->
     <div x-show="toastVisible" x-cloak x-transition.move.bottom.duration.300ms class="fixed bottom-6 right-6 z-50 max-w-sm bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border-2 border-blue-600 flex items-start space-x-3">
         <div class="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center flex-shrink-0 text-white font-bold text-sm">
@@ -305,5 +346,206 @@
         </button>
     </div>
 
+    <!-- NANO TOP PROGRESS BAR FOR ALL URL / FORM LOADINGS -->
+    <div x-show="globalLoading" x-cloak class="fixed top-0 left-0 right-0 h-1 bg-slate-900/30 z-[10001] overflow-hidden pointer-events-none">
+        <div class="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 animate-progress-fast"></div>
+    </div>
+
+    <!-- PANTALLA DE CARGA GENERAL (FULLSCREEN OVERLAY) -->
+    <div x-show="globalLoading" x-cloak 
+         x-transition:enter="transition ease-out duration-200" 
+         x-transition:enter-start="opacity-0" 
+         x-transition:enter-end="opacity-100" 
+         x-transition:leave="transition ease-in duration-150" 
+         x-transition:leave-start="opacity-100" 
+         x-transition:leave-end="opacity-0" 
+         class="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md" 
+         role="status" 
+         aria-live="polite">
+        
+        <div x-show="globalLoading" 
+             x-transition:enter="transition ease-out duration-250" 
+             x-transition:enter-start="opacity-0 scale-95 translate-y-2" 
+             x-transition:enter-end="opacity-100 scale-100 translate-y-0" 
+             x-transition:leave="transition ease-in duration-150" 
+             x-transition:leave-start="opacity-100 scale-100" 
+             x-transition:leave-end="opacity-0 scale-95" 
+             class="relative bg-slate-900 border border-slate-700/80 rounded-3xl p-7 sm:p-9 max-w-sm w-full text-center shadow-2xl overflow-hidden">
+            
+            <!-- Ambient lighting glow blobs -->
+            <div class="absolute -top-12 -left-12 w-36 h-36 bg-blue-600/30 rounded-full blur-2xl pointer-events-none animate-pulse-glow"></div>
+            <div class="absolute -bottom-12 -right-12 w-36 h-36 bg-emerald-500/20 rounded-full blur-2xl pointer-events-none animate-pulse-glow" style="animation-delay: 1s;"></div>
+
+            <div class="relative z-10">
+                <!-- Glowing Sports Spinner Ring -->
+                <div class="relative w-20 h-20 mx-auto mb-5 flex items-center justify-center">
+                    <!-- Outer rotating gradient ring -->
+                    <div class="absolute inset-0 rounded-full border-[3px] border-slate-800 border-t-blue-500 border-r-indigo-500 animate-spin"></div>
+                    <!-- Inner reverse rotating ring -->
+                    <div class="absolute inset-2 rounded-full border-[2px] border-slate-800 border-b-emerald-400 border-l-teal-400 animate-spin" style="animation-direction: reverse; animation-duration: 1.6s;"></div>
+                    <!-- Center emblem -->
+                    <div class="relative w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-900 to-slate-900 flex items-center justify-center shadow-lg border border-blue-400/30">
+                        <span class="text-xl select-none animate-pulse">⚡</span>
+                    </div>
+                </div>
+
+                <!-- Brand Badge -->
+                <div class="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/25 text-blue-400 text-[10px] font-black uppercase tracking-widest mb-2.5">
+                    <span>CanchaX En Vivo</span>
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                </div>
+
+                <!-- Dynamic Title -->
+                <h3 class="text-lg font-black text-white tracking-tight leading-snug" x-text="loadingTitle"></h3>
+
+                <!-- Dynamic Subtitle -->
+                <p class="text-xs text-slate-300 mt-2 font-medium leading-relaxed" x-text="loadingSubtitle"></p>
+
+                <!-- Animated Progress Bar -->
+                <div class="w-full bg-slate-800/90 rounded-full h-1.5 mt-5 overflow-hidden border border-slate-700/60">
+                    <div class="h-full bg-gradient-to-r from-blue-500 via-indigo-400 to-emerald-400 rounded-full animate-progress-fast"></div>
+                </div>
+
+                <!-- Micro Status Indicator -->
+                <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono mt-3 px-1 font-semibold uppercase tracking-wider">
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                        Sincronizando
+                    </span>
+                    <span>Por favor espera...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GLOBAL URL NAVIGATION & ACTION LOADINGS INTERCEPTOR -->
+    <script>
+    (function() {
+        window.showGlobalLoading = function(title, subtitle) {
+            window.dispatchEvent(new CustomEvent('show-global-loading', { 
+                detail: { title, subtitle } 
+            }));
+        };
+
+        window.hideGlobalLoading = function() {
+            window.dispatchEvent(new CustomEvent('hide-global-loading'));
+        };
+
+        // 1. URL Navigation / Change Listener for Links
+        document.addEventListener('click', function(e) {
+            const link = e.target.closest('a');
+            if (!link) return;
+
+            const href = link.getAttribute('href');
+            if (!href) return;
+
+            // Ignorar enlaces especiales / internos sin navegación
+            if (href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('tel:') || href.startsWith('mailto:')) {
+                return;
+            }
+            if (link.target === '_blank' || link.hasAttribute('download') || link.hasAttribute('data-no-loading')) {
+                return;
+            }
+            if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+                return;
+            }
+
+            // Comprobar si es un enlace interno del mismo dominio
+            try {
+                const targetUrl = new URL(link.href, window.location.href);
+                if (targetUrl.origin !== window.location.origin) return;
+                // Si es la misma ruta con sólo hash
+                if (targetUrl.pathname === window.location.pathname && targetUrl.search === window.location.search && targetUrl.hash) {
+                    return;
+                }
+            } catch (err) {
+                return;
+            }
+
+            let title = link.getAttribute('data-loading-title') || 'Cargando página...';
+            let subtitle = link.getAttribute('data-loading-subtitle') || 'Navegando en CanchaX...';
+
+            const text = (link.textContent || '').trim();
+            if (text.includes('Registrarse')) {
+                title = 'Abriendo Registro...';
+                subtitle = 'Cargando opciones de perfil y ubicación';
+            } else if (text.includes('Iniciar Sesión')) {
+                title = 'Abriendo Inicio de Sesión...';
+                subtitle = 'Accede a tu panel y torneos';
+            } else if (href.includes('/tournaments/wizard') || text.includes('Crear Torneo') || text.includes('Organizar Torneo')) {
+                title = 'Iniciando Asistente...';
+                subtitle = 'Cargando creador de torneos, disciplinas y equipos';
+            } else if (href.includes('/tournaments/switch')) {
+                title = 'Cambiando de Torneo...';
+                subtitle = 'Cargando datos, clasificaciones y fixtures';
+            } else if (href.includes('/matches/live')) {
+                title = 'Conectando a Mesa de Control...';
+                subtitle = 'Sincronizando consola de arbitraje en vivo';
+            } else if (href.includes('/tournaments/bracket')) {
+                title = 'Cargando Llaves del Torneo...';
+                subtitle = 'Renderizando cuadro de eliminatorias';
+            } else if (href.includes('/tournaments/standings')) {
+                title = 'Cargando Tablas de Posiciones...';
+                subtitle = 'Calculando puntos, goles y clasificaciones';
+            } else if (href.includes('/dashboard')) {
+                title = 'Cargando Resultados...';
+                subtitle = 'Obteniendo calendario y partidos recientes';
+            } else if (href.includes('/teams')) {
+                title = 'Cargando Equipos y Plantillas...';
+                subtitle = 'Consultando jugadores y estadísticas';
+            }
+
+            window.showGlobalLoading(title, subtitle);
+        });
+
+        // 2. Forms & System Generation Interceptor
+        document.addEventListener('submit', function(e) {
+            const form = e.target;
+            if (!form || form.hasAttribute('data-no-loading')) return;
+
+            let title = form.getAttribute('data-loading-title');
+            let subtitle = form.getAttribute('data-loading-subtitle');
+            const action = form.getAttribute('action') || '';
+
+            if (!title) {
+                if (action.includes('wizard')) {
+                    title = '¡Generando Torneo y Fixtures!';
+                    subtitle = 'El motor inteligente de CanchaX está creando llaves, calendario y grupos...';
+                } else if (action.includes('register')) {
+                    title = 'Creando tu Cuenta...';
+                    subtitle = 'Guardando tus datos y configurando tu perfil en CanchaX...';
+                } else if (action.includes('login')) {
+                    title = 'Iniciando Sesión...';
+                    subtitle = 'Verificando tus credenciales de acceso...';
+                } else if (action.includes('teams') || action.includes('players')) {
+                    title = 'Guardando Plantilla...';
+                    subtitle = 'Actualizando información de equipos y atletas...';
+                } else if (action.includes('collaborators')) {
+                    title = 'Actualizando Colaboradores...';
+                    subtitle = 'Configurando permisos de arbitraje y mesa...';
+                } else if (action.includes('logout')) {
+                    title = 'Cerrando Sesión...';
+                    subtitle = 'Finalizando sesión de forma segura...';
+                } else {
+                    title = 'Procesando Operación...';
+                    subtitle = 'Por favor espera unos instantes mientras el sistema procesa tu solicitud...';
+                }
+            }
+
+            window.showGlobalLoading(title, subtitle);
+
+            // Efecto visual en botones de envío
+            const btns = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+            btns.forEach(function(b) {
+                b.classList.add('opacity-75', 'cursor-wait');
+            });
+        });
+
+        // 3. Back / Forward cache recovery
+        window.addEventListener('pageshow', function(e) {
+            window.hideGlobalLoading();
+        });
+    })();
+    </script>
 </body>
 </html>

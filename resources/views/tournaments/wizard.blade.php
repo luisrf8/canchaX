@@ -90,7 +90,7 @@
     </div>
 
     <!-- Form Container -->
-    <form action="{{ route('tournaments.storeWizard') }}" method="POST" class="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs">
+    <form action="{{ route('tournaments.storeWizard') }}" method="POST" data-loading-title="¡Generando Torneo y Fixtures!" data-loading-subtitle="El motor inteligente de CanchaX está creando llaves eliminatorias, grupos y calendario de partidos..." class="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs">
         @csrf
 
         <!-- STEP 1: Sport, Duration & Stage Rules -->

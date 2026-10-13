@@ -157,7 +157,7 @@
 
                     <div class="space-y-1 flex-1">
                         <h3 class="font-bold text-slate-900 text-base">{{ $org->name }}</h3>
-                        <p class="text-xs text-slate-500 font-semibold">{{ $org->city ?? 'España' }} &bull; Organizador</p>
+                        <p class="text-xs text-slate-500 font-semibold">{{ $org->location_string }} &bull; Organizador</p>
                         <p class="text-[11px] text-slate-400 line-clamp-2 mt-1">{{ $org->bio ?? 'Organizador activo de eventos deportivos locales.' }}</p>
                         
                         <div class="pt-3">

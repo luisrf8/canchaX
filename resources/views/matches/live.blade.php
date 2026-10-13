@@ -165,6 +165,7 @@
         this.cardModal = true;
     },
     submitScore(action, points = 1, isGoal = true) {
+        window.showGlobalLoading('Actualizando Marcador...', 'Registrando anotación y notificando en tiempo real...');
         fetch('{{ route('matches.score', $match->id) }}', {
             method: 'POST',
             headers: {
@@ -198,10 +199,14 @@
                 }
                 this.goalModal = false;
                 window.location.reload();
+            } else {
+                window.hideGlobalLoading();
             }
-        });
+        })
+        .catch(() => window.hideGlobalLoading());
     },
     submitCard() {
+        window.showGlobalLoading('Registrando Sanción...', 'Añadiendo tarjeta a la ficha del partido...');
         fetch('{{ route('matches.card', $match->id) }}', {
             method: 'POST',
             headers: {
@@ -220,11 +225,15 @@
             if (data.success) {
                 this.cardModal = false;
                 window.location.reload();
+            } else {
+                window.hideGlobalLoading();
             }
-        });
+        })
+        .catch(() => window.hideGlobalLoading());
     },
     deleteIncident(incidentId) {
         if (!confirm('¿Eliminar esta incidencia?')) return;
+        window.showGlobalLoading('Eliminando Incidencia...', 'Actualizando evento en vivo...');
         fetch('/matches/live/{{ $match->id }}/incident/' + incidentId, {
             method: 'DELETE',
             headers: {
@@ -235,8 +244,11 @@
         .then(data => {
             if (data.success) {
                 window.location.reload();
+            } else {
+                window.hideGlobalLoading();
             }
-        });
+        })
+        .catch(() => window.hideGlobalLoading());
     }
 }">
 

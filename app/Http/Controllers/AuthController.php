@@ -43,6 +43,8 @@ class AuthController extends Controller
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:6|confirmed',
             'role' => 'required|in:organizer,participant',
+            'country' => 'nullable|string|max:255',
+            'state' => 'nullable|string|max:255',
             'city' => 'nullable|string|max:255',
             'bio' => 'nullable|string|max:1000',
         ]);
@@ -55,7 +57,9 @@ class AuthController extends Controller
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role' => $validated['role'],
-            'city' => $validated['city'] ?? 'Madrid',
+            'country' => $validated['country'] ?? 'Venezuela',
+            'state' => $validated['state'] ?? null,
+            'city' => $validated['city'] ?? null,
             'bio' => $validated['bio'] ?? null,
             'avatar_color' => $avatarColor,
         ]);

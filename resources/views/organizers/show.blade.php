@@ -18,7 +18,7 @@
             </div>
 
             <p class="text-xs text-slate-400 font-semibold">
-                📍 {{ $organizer->city ?? 'España' }} &bull; Miembro de TorneoPro desde {{ $organizer->created_at->format('M Y') }}
+                📍 {{ $organizer->location_string }} &bull; Miembro de CanchaX desde {{ $organizer->created_at->format('M Y') }}
             </p>
 
             <p class="text-xs text-slate-300 max-w-2xl font-normal">

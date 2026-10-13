@@ -16,7 +16,7 @@
             </div>
         @endif
 
-        <form action="{{ route('login') }}" method="POST" class="space-y-5 text-xs">
+        <form action="{{ route('login') }}" method="POST" data-loading-title="Iniciando Sesión..." data-loading-subtitle="Verificando credenciales de acceso..." class="space-y-5 text-xs">
             @csrf
             <div>
                 <label class="block font-bold text-slate-700 uppercase tracking-wider mb-1">Correo Electrónico</label>

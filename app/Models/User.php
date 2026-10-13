@@ -17,6 +17,8 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'country',
+        'state',
         'city',
         'bio',
         'avatar_color',
@@ -33,6 +35,12 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function getLocationStringAttribute(): string
+    {
+        $parts = array_filter([$this->city, $this->state, $this->country]);
+        return !empty($parts) ? implode(', ', $parts) : ($this->city ?? 'Venezuela');
     }
 
     public function tournaments(): HasMany
