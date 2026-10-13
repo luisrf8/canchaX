@@ -10,16 +10,28 @@
     $extraDuration = $settings['extra_period_duration'] ?? ($sport === 'fifa' ? 3 : 15);
     
     // Stage Specific Rule Lookup
-    $stageName = $match->stage;
+    $stageName = $match->stage ?? '';
+    $stageLower = strtolower($stageName);
+    $format = $tournament->format ?? 'knockout';
+    
+    // En fútbol y FIFA EA FC: Fase de grupos o ligas no tienen prórroga ni penales obligatorios, el empate otorga 1 punto c/u
+    $isGroupOrLeague = ($format === 'league') ||
+                       ($format === 'groups' && !str_contains($stageLower, 'final') && !str_contains($stageLower, 'semi') && !str_contains($stageLower, 'playoff')) ||
+                       str_contains($stageLower, 'grupo') ||
+                       str_contains($stageLower, 'group') ||
+                       str_contains($stageLower, 'jornada') ||
+                       str_contains($stageLower, 'fecha') ||
+                       str_contains($stageLower, 'fase regular');
+
     $stageRules = $settings['stage_rules'] ?? [];
     $stageKey = 'cuartos';
-    if (str_contains(strtolower($stageName), 'final') && !str_contains(strtolower($stageName), 'cuartos') && !str_contains(strtolower($stageName), 'semi')) {
+    if (str_contains($stageLower, 'final') && !str_contains($stageLower, 'cuartos') && !str_contains($stageLower, 'semi')) {
         $stageKey = 'final';
-    } elseif (str_contains(strtolower($stageName), 'semi')) {
+    } elseif (str_contains($stageLower, 'semi')) {
         $stageKey = 'semis';
-    } elseif (str_contains(strtolower($stageName), 'octavo') || str_contains(strtolower($stageName), '8vo')) {
+    } elseif (str_contains($stageLower, 'octavo') || str_contains($stageLower, '8vo')) {
         $stageKey = 'octavos';
-    } elseif (str_contains(strtolower($stageName), '16')) {
+    } elseif (str_contains($stageLower, '16')) {
         $stageKey = '16vos';
     }
 
@@ -28,11 +40,15 @@
         'leg_type' => 'single'
     ];
 
-    $tiebreakLabel = ($activeStageRule['tiebreak'] ?? 'prorroga_penales') === 'penales_directo' 
-        ? 'Penales Directos (Sin Prórroga)' 
-        : 'Prórroga (' . $extraDuration . 'm) + Penales';
-        
-    $legLabel = ($activeStageRule['leg_type'] ?? 'single') === 'double' ? 'Ida y Vuelta' : 'Partido Único';
+    if ($isGroupOrLeague) {
+        $tiebreakLabel = 'Empate = 1 Punto Cada Uno (Sin Penales)';
+        $legLabel = ($format === 'league' || str_contains($stageLower, 'jornada')) ? 'Fase Regular / Liga' : 'Fase de Grupos';
+    } else {
+        $tiebreakLabel = ($activeStageRule['tiebreak'] ?? 'prorroga_penales') === 'penales_directo' 
+            ? 'Penales Directos (Sin Prórroga)' 
+            : 'Prórroga (' . $extraDuration . 'm) + Penales';
+        $legLabel = ($activeStageRule['leg_type'] ?? 'single') === 'double' ? 'Ida y Vuelta' : 'Partido Único';
+    }
 
     $tennisData = $match->tennis_data ?? ['home_pts' => '0', 'away_pts' => '0', 'home_games' => 0, 'away_games' => 0, 'home_sets' => 0, 'away_sets' => 0];
     $isOrganizer = $tournament->canManage(auth()->user());
@@ -59,6 +75,7 @@
     goalModal: false,
     cardModal: false,
     finishModal: false,
+    directScoreModal: false,
     secondHalfModal: false,
     extraTimeModal: false,
     activeTeamSide: 'home',
@@ -67,6 +84,13 @@
     detail: 'Jugada',
     cardType: 'card_yellow',
     selectedWinner: 'auto',
+    directHomeScore: {{ $match->home_score }},
+    directAwayScore: {{ $match->away_score }},
+    directHomePenalties: {{ $match->home_penalties }},
+    directAwayPenalties: {{ $match->away_penalties }},
+    directIsFinished: true,
+    directWinner: 'auto',
+    directPeriod: '{{ $match->current_period }}',
 
     init() {
         if (this.timerRunning && !this.isFinished) {
@@ -372,6 +396,36 @@
             }
         })
         .catch(() => window.hideGlobalLoading());
+    },
+    submitDirectScore() {
+        window.showGlobalLoading('Actualizando Marcador Directo...', 'Registrando resultado oficial...');
+        fetch('{{ route('matches.directScore', $match->id) }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify({
+                home_score: parseInt(this.directHomeScore) || 0,
+                away_score: parseInt(this.directAwayScore) || 0,
+                home_penalties: parseInt(this.directHomePenalties) || 0,
+                away_penalties: parseInt(this.directAwayPenalties) || 0,
+                is_finished: this.directIsFinished,
+                winner: this.directWinner,
+                period: this.directPeriod
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                this.directScoreModal = false;
+                window.location.reload();
+            } else {
+                window.hideGlobalLoading();
+                alert(data.error || 'Ocurrió un error al guardar el marcador directo');
+            }
+        })
+        .catch(() => window.hideGlobalLoading());
     }
 }">
 
@@ -393,6 +447,13 @@
         </div>
 
         <div class="flex items-center space-x-2">
+            @if($isOrganizer)
+                <button type="button" @click="directScoreModal = true" class="px-3.5 py-2 bg-blue-900 hover:bg-blue-950 text-white font-extrabold text-xs rounded-lg shadow-sm transition flex items-center space-x-1.5">
+                    <span>⚡</span>
+                    <span>Cargar Resultado Directo</span>
+                </button>
+            @endif
+
             <template x-if="isFinished">
                 <div class="flex items-center space-x-2">
                     <span class="bg-emerald-100 text-emerald-800 font-extrabold text-xs px-3 py-1.5 rounded-lg border border-emerald-300 flex items-center space-x-1.5 shadow-xs">
@@ -549,6 +610,22 @@
 
         </div>
     </div>
+
+    <!-- ACCESO RÁPIDO: CARGAR RESULTADO DIRECTO (Solo Organizadores) -->
+    @if($isOrganizer)
+        <div class="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl p-4 sm:p-5 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-blue-800">
+            <div class="flex items-center space-x-3.5">
+                <span class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-xl flex-shrink-0">⚡</span>
+                <div>
+                    <h4 class="font-extrabold text-sm text-white">¿Deseas colocar el resultado directamente?</h4>
+                    <p class="text-xs text-blue-200">Puedes ingresar el marcador definitivo de una vez sin registrar gol por gol o punto por punto.</p>
+                </div>
+            </div>
+            <button type="button" @click="directScoreModal = true" class="w-full sm:w-auto px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-sm transition flex items-center justify-center space-x-1.5 flex-shrink-0">
+                <span>⚡ Cargar Marcador Directo</span>
+            </button>
+        </div>
+    @endif
 
     <!-- CONTROL DE FASES Y PROGRESIÓN DEL PARTIDO (Solo Organizadores) -->
     @if($isOrganizer)
@@ -1019,35 +1096,62 @@
                     <p class="text-xs text-slate-600 mb-4">¿Cómo deseas proceder según las reglas de la competición?</p>
 
                     <div class="space-y-2.5">
-                        <!-- Option: Finalizar Partido -->
-                        <button @click="submitFinish('auto'); secondHalfModal = false;"
-                                class="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition flex items-center justify-between group">
-                            <div>
-                                <span class="font-extrabold text-xs text-slate-900 group-hover:text-emerald-900 block">🏆 Finalizar Partido Oficialmente</span>
-                                <span class="text-[11px] text-slate-500 block">Concluye el encuentro con el marcador actual (victoria o empate registrado).</span>
+                        @if($isGroupOrLeague)
+                            <div class="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 text-xs space-y-1">
+                                <div class="font-extrabold flex items-center space-x-1.5">
+                                    <span>🤝</span>
+                                    <span>Regla Oficial: {{ $legLabel }}</span>
+                                </div>
+                                <p class="text-[11px] text-emerald-800">
+                                    En fase de grupos y liga (Fútbol y FIFA / EA FC), los partidos concluyen en los 90 minutos reglamentarios. Si hay empate, <strong>cada equipo suma exactamente 1 punto</strong> en la tabla de clasificación.
+                                </p>
                             </div>
-                            <span class="text-slate-400 group-hover:text-emerald-600 font-bold text-sm">&rarr;</span>
-                        </button>
 
-                        <!-- Option: Ir a Tiempos Extras (1TE) -->
-                        <button @click="changePhase('1TE', 'Inicio de Tiempos Extras (1TE)', true); secondHalfModal = false;"
-                                class="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50/50 transition flex items-center justify-between group">
-                            <div>
-                                <span class="font-extrabold text-xs text-slate-900 group-hover:text-purple-900 block">⏱️ Iniciar Tiempos Extras (1TE - {{ $extraDuration }}m)</span>
-                                <span class="text-[11px] text-slate-500 block">Jugar 1er tiempo suplementario por prórroga reglamentaria.</span>
-                            </div>
-                            <span class="text-slate-400 group-hover:text-purple-600 font-bold text-sm">&rarr;</span>
-                        </button>
+                            <!-- Option: Finalizar Partido Oficialmente -->
+                            <button @click="submitFinish('auto'); secondHalfModal = false;"
+                                    class="w-full text-left p-3.5 rounded-xl border-2 border-emerald-500 bg-emerald-50/70 hover:bg-emerald-100 transition flex items-center justify-between group shadow-xs">
+                                <div>
+                                    <span class="font-black text-xs text-emerald-950 block">🏆 Concluir Partido Oficialmente</span>
+                                    <template x-if="homeScore === awayScore">
+                                        <span class="text-[11px] text-emerald-700 font-bold block">✓ Empate reglamentario: 1 punto para {{ $match->homeTeam->name }} y 1 punto para {{ $match->awayTeam->name }}</span>
+                                    </template>
+                                    <template x-if="homeScore !== awayScore">
+                                        <span class="text-[11px] text-emerald-700 font-bold block">✓ Victoria registrada: 3 puntos para el ganador y 0 para el perdedor</span>
+                                    </template>
+                                </div>
+                                <span class="text-emerald-700 font-bold text-sm">&rarr;</span>
+                            </button>
+                        @else
+                            <!-- Option: Finalizar Partido -->
+                            <button @click="submitFinish('auto'); secondHalfModal = false;"
+                                    class="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition flex items-center justify-between group">
+                                <div>
+                                    <span class="font-extrabold text-xs text-slate-900 group-hover:text-emerald-900 block">🏆 Finalizar Partido Oficialmente</span>
+                                    <span class="text-[11px] text-slate-500 block">Concluye el encuentro con el marcador actual (victoria o empate registrado).</span>
+                                </div>
+                                <span class="text-slate-400 group-hover:text-emerald-600 font-bold text-sm">&rarr;</span>
+                            </button>
 
-                        <!-- Option: Ir Directo a Penales -->
-                        <button @click="changePhase('Penales', 'Inicio de Tanda de Penaltis Directa', false); secondHalfModal = false;"
-                                class="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-amber-500 hover:bg-amber-50/50 transition flex items-center justify-between group">
-                            <div>
-                                <span class="font-extrabold text-xs text-slate-900 group-hover:text-amber-900 block">⚽ Ir Directo a Tanda de Penales</span>
-                                <span class="text-[11px] text-slate-500 block">Sin tiempos extras, resolver el desempate desde el punto penal.</span>
-                            </div>
-                            <span class="text-slate-400 group-hover:text-amber-600 font-bold text-sm">&rarr;</span>
-                        </button>
+                            <!-- Option: Ir a Tiempos Extras (1TE) -->
+                            <button @click="changePhase('1TE', 'Inicio de Tiempos Extras (1TE)', true); secondHalfModal = false;"
+                                    class="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50/50 transition flex items-center justify-between group">
+                                <div>
+                                    <span class="font-extrabold text-xs text-slate-900 group-hover:text-purple-900 block">⏱️ Iniciar Tiempos Extras (1TE - {{ $extraDuration }}m)</span>
+                                    <span class="text-[11px] text-slate-500 block">Jugar 1er tiempo suplementario por prórroga reglamentaria.</span>
+                                </div>
+                                <span class="text-slate-400 group-hover:text-purple-600 font-bold text-sm">&rarr;</span>
+                            </button>
+
+                            <!-- Option: Ir Directo a Penales -->
+                            <button @click="changePhase('Penales', 'Inicio de Tanda de Penaltis Directa', false); secondHalfModal = false;"
+                                    class="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-amber-500 hover:bg-amber-50/50 transition flex items-center justify-between group">
+                                <div>
+                                    <span class="font-extrabold text-xs text-slate-900 group-hover:text-amber-900 block">⚽ Ir Directo a Tanda de Penales</span>
+                                    <span class="text-[11px] text-slate-500 block">Sin tiempos extras, resolver el desempate desde el punto penal.</span>
+                                </div>
+                                <span class="text-slate-400 group-hover:text-amber-600 font-bold text-sm">&rarr;</span>
+                            </button>
+                        @endif
                     </div>
 
                     <div class="mt-5 flex justify-end">
@@ -1145,11 +1249,11 @@
                             <label class="block font-bold text-slate-700 mb-1.5">Declarar Resultado / Ganador</label>
                             <select x-model="selectedWinner" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 bg-white">
                                 <option value="auto">⚡ Automático (Según goles o penales registrados)</option>
-                                <option value="home">Victoria Local ({{ $match->homeTeam->name }})</option>
-                                <option value="away">Victoria Visitante ({{ $match->awayTeam->name }})</option>
-                                <option value="draw">Empate Oficial (Sin Ganador)</option>
+                                <option value="home">Victoria Local ({{ $match->homeTeam->name }}) - 3 Puntos</option>
+                                <option value="away">Victoria Visitante ({{ $match->awayTeam->name }}) - 3 Puntos</option>
+                                <option value="draw">🤝 Empate Oficial (1 Punto Para Cada Equipo)</option>
                             </select>
-                            <p class="text-[11px] text-slate-500 mt-1">El ganador avanzará automáticamente en el cuadro si es una fase eliminatoria.</p>
+                            <p class="text-[11px] text-slate-500 mt-1">En fase de grupos y liga, el empate suma 1 punto para cada participante en la tabla.</p>
                         </div>
 
                         <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-900">
@@ -1161,6 +1265,95 @@
                         <button @click="finishModal = false" class="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800">Cancelar</button>
                         <button @click="submitFinish()" class="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition">
                             ✓ Confirmar y Finalizar Partido
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- DIRECT SCORE MODAL -->
+    @if($isOrganizer)
+        <div x-show="directScoreModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4 text-center">
+                <div x-show="directScoreModal" x-transition.opacity class="fixed inset-0 bg-slate-900/60" @click="directScoreModal = false"></div>
+                
+                <div class="inline-block bg-white rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all max-w-lg w-full p-6 z-10 border border-slate-200 space-y-5">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <div class="flex items-center space-x-2.5">
+                            <span class="w-8 h-8 rounded-lg bg-blue-900 text-white flex items-center justify-center font-black text-sm">⚡</span>
+                            <div>
+                                <h3 class="text-base font-extrabold text-slate-900">Cargar Resultado Directo</h3>
+                                <p class="text-[11px] text-slate-500">Ingresa el marcador final directamente sin registrar gol por gol.</p>
+                            </div>
+                        </div>
+                        <button type="button" @click="directScoreModal = false" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+                    </div>
+
+                    <!-- Score Inputs Grid -->
+                    <div class="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <!-- Local -->
+                        <div class="space-y-1 text-center">
+                            <div class="flex items-center justify-center space-x-1.5 mb-1">
+                                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: {{ $match->homeTeam->color ?? '#94a3b8' }}"></span>
+                                <label class="font-bold text-xs text-slate-800 truncate">{{ $match->homeTeam->name }}</label>
+                            </div>
+                            <input type="number" min="0" x-model.number="directHomeScore" class="w-full text-center py-3 bg-white rounded-xl border-2 border-slate-300 font-mono font-black text-3xl text-slate-900 focus:border-blue-900 focus:ring-0">
+                        </div>
+
+                        <!-- Visita -->
+                        <div class="space-y-1 text-center">
+                            <div class="flex items-center justify-center space-x-1.5 mb-1">
+                                <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: {{ $match->awayTeam->color ?? '#94a3b8' }}"></span>
+                                <label class="font-bold text-xs text-slate-800 truncate">{{ $match->awayTeam->name }}</label>
+                            </div>
+                            <input type="number" min="0" x-model.number="directAwayScore" class="w-full text-center py-3 bg-white rounded-xl border-2 border-slate-300 font-mono font-black text-3xl text-slate-900 focus:border-blue-900 focus:ring-0">
+                        </div>
+                    </div>
+
+                    <!-- Penalties if tiebreak or knockout -->
+                    <div class="space-y-2">
+                        <label class="block font-bold text-xs text-slate-700">Tanda de Penales (Opcional si hubo empate en eliminatoria):</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <span class="text-[10px] text-slate-500 font-semibold block mb-1">Penales {{ $match->homeTeam->short_name }}</span>
+                                <input type="number" min="0" x-model.number="directHomePenalties" class="w-full px-3 py-2 bg-white rounded-lg border border-slate-200 font-mono font-bold text-sm text-center">
+                            </div>
+                            <div>
+                                <span class="text-[10px] text-slate-500 font-semibold block mb-1">Penales {{ $match->awayTeam->short_name }}</span>
+                                <input type="number" min="0" x-model.number="directAwayPenalties" class="w-full px-3 py-2 bg-white rounded-lg border border-slate-200 font-mono font-bold text-sm text-center">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Options & Status -->
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <label class="block font-bold text-slate-700 mb-1">Declarar Ganador / Criterio:</label>
+                            <select x-model="directWinner" class="w-full px-3 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 bg-white">
+                                <option value="auto">⚡ Automático (Según goles o penales ingresados)</option>
+                                <option value="home">Victoria Local ({{ $match->homeTeam->name }})</option>
+                                <option value="away">Victoria Visitante ({{ $match->awayTeam->name }})</option>
+                                <option value="draw">🤝 Empate Oficial (Fase regular / Liga - 1 pt c/u)</option>
+                            </select>
+                        </div>
+
+                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                            <label class="flex items-center space-x-2 cursor-pointer select-none">
+                                <input type="checkbox" x-model="directIsFinished" class="w-4 h-4 text-blue-900 rounded border-slate-300 focus:ring-blue-900">
+                                <span class="font-bold text-slate-900">Dar partido como Oficialmente Finalizado con este resultado</span>
+                            </label>
+                            <p class="text-[11px] text-slate-500 pl-6">
+                                Al marcar como finalizado, el partido sumará puntos en la tabla o avanzará el ganador en las llaves de playoffs automáticamente.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="pt-2 flex justify-end space-x-3 border-t border-slate-100">
+                        <button type="button" @click="directScoreModal = false" class="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800">Cancelar</button>
+                        <button type="button" @click="submitDirectScore()" class="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white font-extrabold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5">
+                            <span>💾</span>
+                            <span>Guardar Resultado Directo</span>
                         </button>
                     </div>
                 </div>

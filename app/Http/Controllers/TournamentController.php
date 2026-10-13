@@ -146,7 +146,27 @@ class TournamentController extends Controller
             ->orderBy('id', 'asc')
             ->get();
 
-        return view('tournaments.bracket', compact('tournament', 'allTournaments', 'matches'));
+        $engine = app(TournamentEngine::class);
+        $groupStandings = $engine->getGroupStandings($tournament);
+        $bestThirds = $engine->getBestThirdPlaceTeams($tournament, $groupStandings);
+        $playoffOptions = $engine->getPlayoffStructureOptions($tournament);
+        $groupStageClosed = (bool) ($tournament->settings['group_stage_closed'] ?? false);
+
+        $groupMatches = $matches->filter(fn($m) => str_starts_with($m->stage, 'Grupo'));
+        $totalGroupMatches = $groupMatches->count();
+        $finishedGroupMatches = $groupMatches->filter(fn($m) => $m->status === 'finished' || $m->current_period === 'Finalizado')->count();
+
+        return view('tournaments.bracket', compact(
+            'tournament',
+            'allTournaments',
+            'matches',
+            'groupStandings',
+            'bestThirds',
+            'playoffOptions',
+            'groupStageClosed',
+            'totalGroupMatches',
+            'finishedGroupMatches'
+        ));
     }
 
     public function standings($id = null)
@@ -177,9 +197,13 @@ class TournamentController extends Controller
             }
         }
 
-        // Head-to-head scores index
+        // Head-to-head scores index: Consider both status === 'finished' and current_period === 'Finalizado'
+        $finishedMatches = $matches->filter(function ($m) {
+            return $m->status === 'finished' || $m->current_period === 'Finalizado';
+        });
+
         $headToHead = [];
-        foreach ($matches->where('status', 'finished') as $m) {
+        foreach ($finishedMatches as $m) {
             $key = $m->home_team_id . '_' . $m->away_team_id;
             $revKey = $m->away_team_id . '_' . $m->home_team_id;
 
@@ -212,17 +236,17 @@ class TournamentController extends Controller
             ];
         }
 
-        foreach ($matches->where('status', 'finished') as $m) {
+        foreach ($finishedMatches as $m) {
             if (isset($standings[$m->home_team_id]) && isset($standings[$m->away_team_id])) {
                 $h = &$standings[$m->home_team_id];
                 $a = &$standings[$m->away_team_id];
 
                 $h['pj']++;
                 $a['pj']++;
-                $h['gf'] += $m->home_score;
-                $h['gc'] += $m->away_score;
-                $a['gf'] += $m->away_score;
-                $a['gc'] += $m->home_score;
+                $h['gf'] += (int) $m->home_score;
+                $h['gc'] += (int) $m->away_score;
+                $a['gf'] += (int) $m->away_score;
+                $a['gc'] += (int) $m->home_score;
 
                 if ($m->home_score > $m->away_score) {
                     $h['pg']++;
@@ -233,6 +257,7 @@ class TournamentController extends Controller
                     $a['pts'] += 3;
                     $h['pp']++;
                 } else {
+                    // En fútbol y FIFA EA FC: El empate oficial otorga 1 punto a cada equipo
                     $h['pe']++;
                     $a['pe']++;
                     $h['pts'] += 1;
@@ -271,6 +296,16 @@ class TournamentController extends Controller
 
             return $b['dg'] <=> $a['dg'];
         });
+
+        // Group-by-Group Standings if tournament is group format
+        $groupStandings = [];
+        if ($tournament->format === 'groups') {
+            foreach ($standings as $row) {
+                $grpName = $row['team']->group_name ?: 'Grupo A';
+                $groupStandings[$grpName][] = $row;
+            }
+            ksort($groupStandings);
+        }
 
         // Top Scorers
         $incidents = MatchIncident::with(['player', 'team'])
@@ -343,14 +378,53 @@ class TournamentController extends Controller
             return $a['score'] <=> $b['score'];
         });
 
+        $engine = app(TournamentEngine::class);
+        $bestThirds = $engine->getBestThirdPlaceTeams($tournament, $groupStandings);
+        $playoffOptions = $engine->getPlayoffStructureOptions($tournament);
+        $groupStageClosed = (bool) ($tournament->settings['group_stage_closed'] ?? false);
+        $groupMatches = $matches->filter(fn($m) => str_starts_with($m->stage, 'Grupo'));
+        $totalGroupMatches = $groupMatches->count();
+        $finishedGroupMatches = $groupMatches->filter(fn($m) => $m->status === 'finished' || $m->current_period === 'Finalizado')->count();
+
         return view('tournaments.standings', compact(
             'tournament',
             'allTournaments',
             'standings',
+            'groupStandings',
             'scorersData',
             'fairPlay',
-            'priorityOrder'
+            'priorityOrder',
+            'bestThirds',
+            'playoffOptions',
+            'groupStageClosed',
+            'totalGroupMatches',
+            'finishedGroupMatches'
         ));
+    }
+
+    public function closeGroupStage(Request $request, $id, TournamentEngine $engine)
+    {
+        $tournament = Tournament::findOrFail($id);
+        if (!$tournament->canManage(auth()->user())) {
+            return back()->with('error', 'No tienes permisos para cerrar la fase de grupos de este torneo.');
+        }
+
+        $formatKey = $request->input('playoff_format', 'auto');
+        $engine->generatePlayoffBracket($tournament, $formatKey);
+
+        return redirect()->route('tournaments.bracket', $tournament->id)->with('success', '¡Fase de grupos cerrada oficialmente y llaves de playoffs generadas!');
+    }
+
+    public function reopenGroupStage($id, TournamentEngine $engine)
+    {
+        $tournament = Tournament::findOrFail($id);
+        if (!$tournament->canManage(auth()->user())) {
+            return back()->with('error', 'No tienes permisos para modificar este torneo.');
+        }
+
+        $engine->reopenGroupStage($tournament);
+
+        return redirect()->route('tournaments.bracket', $tournament->id)->with('success', 'Fase de grupos reabierta. Se restauró el estado y se removieron llaves no jugadas.');
     }
 
     public function destroy($id)

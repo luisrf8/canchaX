@@ -67,6 +67,10 @@ class MatchController extends Controller
         if ($match->status === 'scheduled') {
             $match->status = 'live';
             $match->save();
+        } elseif ($match->current_period === 'Finalizado' && $match->status !== 'finished') {
+            $match->status = 'finished';
+            $match->timer_running = false;
+            $match->save();
         }
 
         return view('matches.live', compact('match', 'tournament', 'allTournaments'));
@@ -298,6 +302,11 @@ class MatchController extends Controller
 
         if ($request->has('current_period')) {
             $match->current_period = $request->input('current_period');
+            if ($match->current_period === 'Finalizado') {
+                $match->status = 'finished';
+                $match->timer_running = false;
+                $match->timer_started_at = null;
+            }
             $match->save();
         }
 
@@ -485,5 +494,108 @@ class MatchController extends Controller
         }
 
         return redirect()->route('matches.live', $match->id)->with('success', '¡Partido finalizado con éxito! El estatus ha cambiado a Finalizado.');
+    }
+
+    public function setDirectScore(Request $request, $id, TournamentEngine $engine)
+    {
+        $match = GameMatch::with(['tournament.collaborators', 'homeTeam', 'awayTeam'])->findOrFail($id);
+        if (!$match->tournament->canManage(auth()->user())) {
+            return response()->json(['error' => 'No tienes permisos para editar partidos en este torneo.'], 403);
+        }
+
+        $validated = $request->validate([
+            'home_score' => 'required|integer|min:0',
+            'away_score' => 'required|integer|min:0',
+            'home_penalties' => 'nullable|integer|min:0',
+            'away_penalties' => 'nullable|integer|min:0',
+            'winner' => 'nullable|string|in:auto,home,away,draw',
+            'is_finished' => 'nullable|boolean',
+            'period' => 'nullable|string|max:50',
+        ]);
+
+        $match->home_score = (int) $validated['home_score'];
+        $match->away_score = (int) $validated['away_score'];
+
+        if (array_key_exists('home_penalties', $validated) && $validated['home_penalties'] !== null) {
+            $match->home_penalties = (int) $validated['home_penalties'];
+        }
+        if (array_key_exists('away_penalties', $validated) && $validated['away_penalties'] !== null) {
+            $match->away_penalties = (int) $validated['away_penalties'];
+        }
+
+        $shouldFinish = $request->boolean('is_finished', false);
+
+        if ($shouldFinish) {
+            $winnerChoice = $validated['winner'] ?? 'auto';
+
+            if ($winnerChoice === 'home') {
+                $match->winner_id = $match->home_team_id;
+            } elseif ($winnerChoice === 'away') {
+                $match->winner_id = $match->away_team_id;
+            } elseif ($winnerChoice === 'draw') {
+                $match->winner_id = null;
+            } else {
+                if ($match->home_score > $match->away_score) {
+                    $match->winner_id = $match->home_team_id;
+                } elseif ($match->away_score > $match->home_score) {
+                    $match->winner_id = $match->away_team_id;
+                } elseif ($match->home_penalties > $match->away_penalties) {
+                    $match->winner_id = $match->home_team_id;
+                } elseif ($match->away_penalties > $match->home_penalties) {
+                    $match->winner_id = $match->away_team_id;
+                } else {
+                    $match->winner_id = null;
+                }
+            }
+
+            $match->status = 'finished';
+            $match->current_period = 'Finalizado';
+            $match->timer_running = false;
+            $match->timer_started_at = null;
+        } else {
+            if ($match->status === 'scheduled') {
+                $match->status = 'live';
+            }
+            if (!empty($validated['period'])) {
+                $match->current_period = $validated['period'];
+            } elseif ($match->current_period === 'Programado' || empty($match->current_period)) {
+                $match->current_period = '1T';
+            }
+        }
+
+        $match->save();
+
+        MatchIncident::create([
+            'game_match_id' => $match->id,
+            'team_id' => $match->winner_id ?? $match->home_team_id,
+            'type' => 'period_change',
+            'minute' => $match->getCurrentMinute(),
+            'period' => $match->current_period,
+            'detail' => 'Marcador directo registrado: ' . $match->home_score . ' - ' . $match->away_score . ($shouldFinish ? ' (Finalizado)' : ''),
+        ]);
+
+        if ($shouldFinish) {
+            $engine->advanceWinner($match);
+        }
+
+        $winnerName = $match->winner->name ?? ($match->winner_id ? 'Definido' : 'Empate');
+        $msg = "Marcador directo en {$match->tournament->name}: {$match->homeTeam->name} {$match->home_score} - {$match->away_score} {$match->awayTeam->name}" . ($shouldFinish ? " (Final: {$winnerName})" : "");
+        $this->notifyMatchSubscribers($match, $msg, $shouldFinish);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'home_score' => $match->home_score,
+                'away_score' => $match->away_score,
+                'home_penalties' => $match->home_penalties,
+                'away_penalties' => $match->away_penalties,
+                'status' => $match->status,
+                'current_period' => $match->current_period,
+                'winner_id' => $match->winner_id,
+                'winner_name' => $winnerName,
+            ]);
+        }
+
+        return back()->with('success', '¡Marcador del partido actualizado correctamente!');
     }
 }

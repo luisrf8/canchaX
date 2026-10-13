@@ -52,8 +52,13 @@
     activeModal: false,
     userMenu: false,
     notifOpen: false,
-    unreadCount: 0,
-    notifications: [],
+    unreadCount: {{ auth()->check() ? auth()->user()->unreadNotifications()->count() : 0 }},
+    notifications: {{ auth()->check() ? json_encode(auth()->user()->notifications()->take(10)->get()->map(fn($n) => [
+        'id' => $n->id,
+        'data' => $n->data,
+        'read_at' => $n->read_at,
+        'created_at' => $n->created_at->diffForHumans(),
+    ])) : '[]' }},
     toastVisible: false,
     toastMsg: '',
     toastTitle: '',
@@ -64,7 +69,6 @@
 
     init() {
         @auth
-            this.fetchNotifications();
             this.connectSSE();
         @endauth
 
@@ -88,14 +92,6 @@
         clearTimeout(this.loadingTimeout);
         this.globalLoading = false;
     },
-    fetchNotifications() {
-        fetch('{{ route('notifications.index') }}')
-            .then(res => res.json())
-            .then(data => {
-                this.unreadCount = data.unread_count || 0;
-                this.notifications = data.notifications || [];
-            });
-    },
     markAllRead() {
         fetch('{{ route('notifications.readAll') }}', {
             method: 'POST',
@@ -117,10 +113,12 @@
         
         source.addEventListener('notification_pushed', (e) => {
             const payload = JSON.parse(e.data);
-            this.unreadCount = payload.unread_count || (this.unreadCount + 1);
-            this.notifications.unshift(payload);
-            const title = payload.data?.type === 'tournament_created' ? '🏆 Nuevo Torneo' : '⚡ Notificación en Vivo';
-            this.showToast(title, payload.data?.message || 'Nueva actualización');
+            this.unreadCount = payload.unread_count;
+            if (!this.notifications.some(n => n.id === payload.id)) {
+                this.notifications.unshift(payload);
+                const title = payload.data?.type === 'tournament_created' ? '🏆 Nuevo Torneo' : '⚡ Notificación en Vivo';
+                this.showToast(title, payload.data?.message || 'Nueva actualización');
+            }
         });
     }
 }">

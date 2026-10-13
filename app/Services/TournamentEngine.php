@@ -178,16 +178,643 @@ class TournamentEngine
                 ]);
             }
         }
+        // Nota: Las llaves de playoffs se generan oficialmente al cerrar la fase de grupos con los clasificados reales.
+    }
 
-        if (!empty($groupA) && !empty($groupB)) {
-            GameMatch::create([
-                'tournament_id' => $tournament->id,
-                'stage' => 'Gran Final Playoff',
-                'home_team_id' => $groupA[0]->id,
-                'away_team_id' => $groupB[0]->id,
-                'status' => 'scheduled',
-            ]);
+    /**
+     * Compute full sorted standings for a tournament
+     */
+    public function computeStandings(Tournament $tournament): array
+    {
+        $teams = Team::where('tournament_id', $tournament->id)->get();
+        $matches = GameMatch::where('tournament_id', $tournament->id)->get();
+
+        $finishedMatches = $matches->filter(function ($m) {
+            return $m->status === 'finished' || $m->current_period === 'Finalizado';
+        });
+
+        $headToHead = [];
+        foreach ($finishedMatches as $m) {
+            $key = $m->home_team_id . '_' . $m->away_team_id;
+            $revKey = $m->away_team_id . '_' . $m->home_team_id;
+
+            if ($m->home_score > $m->away_score) {
+                $headToHead[$key] = 3;
+                $headToHead[$revKey] = 0;
+            } elseif ($m->away_score > $m->home_score) {
+                $headToHead[$key] = 0;
+                $headToHead[$revKey] = 3;
+            } else {
+                $headToHead[$key] = 1;
+                $headToHead[$revKey] = 1;
+            }
         }
+
+        $standings = [];
+        foreach ($teams as $team) {
+            $standings[$team->id] = [
+                'team' => $team,
+                'pj' => 0,
+                'pg' => 0,
+                'pe' => 0,
+                'pp' => 0,
+                'gf' => 0,
+                'gc' => 0,
+                'dg' => 0,
+                'pts' => 0,
+                'fair_play' => 0,
+            ];
+        }
+
+        foreach ($finishedMatches as $m) {
+            if (isset($standings[$m->home_team_id]) && isset($standings[$m->away_team_id])) {
+                $h = &$standings[$m->home_team_id];
+                $a = &$standings[$m->away_team_id];
+
+                $h['pj']++;
+                $a['pj']++;
+                $h['gf'] += (int) $m->home_score;
+                $h['gc'] += (int) $m->away_score;
+                $a['gf'] += (int) $m->away_score;
+                $a['gc'] += (int) $m->home_score;
+
+                if ($m->home_score > $m->away_score) {
+                    $h['pg']++;
+                    $h['pts'] += 3;
+                    $a['pp']++;
+                } elseif ($m->away_score > $m->home_score) {
+                    $a['pg']++;
+                    $a['pts'] += 3;
+                    $h['pp']++;
+                } else {
+                    $h['pe']++;
+                    $a['pe']++;
+                    $h['pts'] += 1;
+                    $a['pts'] += 1;
+                }
+
+                $h['dg'] = $h['gf'] - $h['gc'];
+                $a['dg'] = $a['gf'] - $a['gc'];
+            }
+        }
+
+        $priorityOrder = $tournament->settings['tiebreak_priority'] ?? ['direct', 'dg', 'gf', 'gc', 'fair_play'];
+
+        usort($standings, function ($a, $b) use ($priorityOrder, $headToHead) {
+            if ($b['pts'] !== $a['pts']) {
+                return $b['pts'] <=> $a['pts'];
+            }
+            foreach ($priorityOrder as $criterion) {
+                if ($criterion === 'direct') {
+                    $key = $a['team']->id . '_' . $b['team']->id;
+                    $scoreA = $headToHead[$key] ?? 0;
+                    $scoreB = $headToHead[$b['team']->id . '_' . $a['team']->id] ?? 0;
+                    if ($scoreA !== $scoreB) return $scoreB <=> $scoreA;
+                } elseif ($criterion === 'dg') {
+                    if ($b['dg'] !== $a['dg']) return $b['dg'] <=> $a['dg'];
+                } elseif ($criterion === 'gf') {
+                    if ($b['gf'] !== $a['gf']) return $b['gf'] <=> $a['gf'];
+                } elseif ($criterion === 'gc') {
+                    if ($a['gc'] !== $b['gc']) return $a['gc'] <=> $b['gc'];
+                }
+            }
+            return $b['dg'] <=> $a['dg'];
+        });
+
+        return $standings;
+    }
+
+    /**
+     * Get Standings Grouped by Group Name
+     */
+    public function getGroupStandings(Tournament $tournament): array
+    {
+        $standings = $this->computeStandings($tournament);
+        $groups = [];
+        foreach ($standings as $row) {
+            $g = $row['team']->group_name ?: 'Grupo A';
+            $groups[$g][] = $row;
+        }
+        ksort($groups);
+        return $groups;
+    }
+
+    /**
+     * Get Best 3rd Place Teams (Mejores Terceros de Grupos)
+     */
+    public function getBestThirdPlaceTeams(Tournament $tournament, ?array $groupStandings = null): array
+    {
+        if ($groupStandings === null) {
+            $groupStandings = $this->getGroupStandings($tournament);
+        }
+
+        $thirds = [];
+        foreach ($groupStandings as $groupName => $rows) {
+            if (isset($rows[2])) { // Tercer lugar del grupo (índice 2)
+                $item = $rows[2];
+                $item['group_name'] = $groupName;
+                $thirds[] = $item;
+            }
+        }
+
+        // Ordenar mejores terceros por Puntos > DG > GF
+        usort($thirds, function ($a, $b) {
+            if ($b['pts'] !== $a['pts']) return $b['pts'] <=> $a['pts'];
+            if ($b['dg'] !== $a['dg']) return $b['dg'] <=> $a['dg'];
+            if ($b['gf'] !== $a['gf']) return $b['gf'] <=> $a['gf'];
+            return $a['fair_play'] <=> $b['fair_play'];
+        });
+
+        return $thirds;
+    }
+
+    /**
+     * Get Real-Life Playoff Options Available for the Tournament
+     */
+    public function getPlayoffStructureOptions(Tournament $tournament): array
+    {
+        $groupStandings = $this->getGroupStandings($tournament);
+        $groupCount = count($groupStandings);
+        $options = [];
+
+        if ($groupCount === 2) {
+            $options[] = [
+                'key' => 'semis_4_cruzados',
+                'label' => 'Semifinales Cruzadas (1° vs 2° - 4 Equipos)',
+                'description' => '1° Grupo A vs 2° Grupo B y 1° Grupo B vs 2° Grupo A → Gran Final',
+                'team_count' => 4,
+                'is_recommended' => true,
+            ];
+            $options[] = [
+                'key' => 'final_2_directa',
+                'label' => 'Gran Final Directa (Líderes de Grupo - 2 Equipos)',
+                'description' => '1° Grupo A vs 1° Grupo B (Partido Único de Campeonato)',
+                'team_count' => 2,
+                'is_recommended' => false,
+            ];
+            $options[] = [
+                'key' => 'cuartos_8_amplio_2grupos',
+                'label' => 'Cuartos de Final (Top 4 de cada Grupo - 8 Equipos)',
+                'description' => '1A vs 4B, 2B vs 3A, 1B vs 4A, 2A vs 3B → Semifinales → Gran Final',
+                'team_count' => 8,
+                'is_recommended' => false,
+            ];
+        } elseif ($groupCount === 3) {
+            $options[] = [
+                'key' => 'cuartos_8_mejores_3ros',
+                'label' => 'Cuartos de Final con Mejores 3ros (6 directos + 2 mejores 3ros)',
+                'description' => '1° y 2° de Grupos A, B, C + los 2 mejores terceros de la fase regular',
+                'team_count' => 8,
+                'is_recommended' => true,
+            ];
+            $options[] = [
+                'key' => 'semis_4_lideres',
+                'label' => 'Semifinales (3 Líderes + Mejor 2do - 4 Equipos)',
+                'description' => 'Los 3 primeros de grupo y el mejor segundo lugar avanzan a Semifinales',
+                'team_count' => 4,
+                'is_recommended' => false,
+            ];
+        } elseif ($groupCount >= 4) {
+            $options[] = [
+                'key' => 'cuartos_8_cruzados',
+                'label' => 'Cuartos de Final (1° vs 2° Cruzado - 8 Equipos)',
+                'description' => '1A vs 2B, 1C vs 2D, 1B vs 2A, 1D vs 2C → Semifinales → Gran Final',
+                'team_count' => 8,
+                'is_recommended' => true,
+            ];
+            $options[] = [
+                'key' => 'semis_4_lideres',
+                'label' => 'Semifinales (Líderes de cada Grupo - 4 Equipos)',
+                'description' => '1A vs 1B y 1C vs 1D → Gran Final',
+                'team_count' => 4,
+                'is_recommended' => false,
+            ];
+        } else {
+            // 1 Grupo / Liga
+            $options[] = [
+                'key' => 'liga_top4',
+                'label' => 'Playoffs Semifinales (1° vs 4°, 2° vs 3° - 4 Equipos)',
+                'description' => 'Los 4 mejores de la tabla regular disputan Semifinales y Gran Final',
+                'team_count' => 4,
+                'is_recommended' => true,
+            ];
+            $options[] = [
+                'key' => 'liga_top2',
+                'label' => 'Gran Final Directa (1° vs 2° - 2 Equipos)',
+                'description' => 'Los 2 líderes disputan la Gran Final',
+                'team_count' => 2,
+                'is_recommended' => false,
+            ];
+        }
+
+        return $options;
+    }
+
+    /**
+     * Generate Official Playoff Bracket from Group Stage Standings
+     */
+    public function generatePlayoffBracket(Tournament $tournament, string $formatKey = 'auto'): array
+    {
+        $groupStandings = $this->getGroupStandings($tournament);
+        $groupCount = count($groupStandings);
+        $bestThirds = $this->getBestThirdPlaceTeams($tournament, $groupStandings);
+
+        // Eliminar llaves de playoffs previas que no hayan sido jugadas
+        GameMatch::where('tournament_id', $tournament->id)
+            ->whereIn('stage', [
+                'Gran Final', 'Gran Final Playoff', 'Final',
+                'Semifinal 1', 'Semifinal 2', 'Semifinal', 'Semifinales',
+                'Cuartos de final 1', 'Cuartos de final 2', 'Cuartos de final 3', 'Cuartos de final 4', 'Cuartos de final',
+                'Octavos de final'
+            ])
+            ->delete();
+
+        // Autoselección según la cantidad de grupos
+        if ($formatKey === 'auto') {
+            if ($groupCount === 2) {
+                $formatKey = 'semis_4_cruzados';
+            } elseif ($groupCount === 3) {
+                $formatKey = 'cuartos_8_mejores_3ros';
+            } elseif ($groupCount >= 4) {
+                $formatKey = 'cuartos_8_cruzados';
+            } else {
+                $formatKey = 'liga_top4';
+            }
+        }
+
+        $createdMatches = [];
+        $groups = array_values($groupStandings);
+
+        if ($formatKey === 'semis_4_cruzados') {
+            // 1A vs 2B y 1B vs 2A -> Final
+            $t1A = $groups[0][0]['team'] ?? null;
+            $t2A = $groups[0][1]['team'] ?? $t1A;
+            $t1B = isset($groups[1]) ? ($groups[1][0]['team'] ?? null) : $t1A;
+            $t2B = isset($groups[1]) ? ($groups[1][1]['team'] ?? $t1B) : $t2A;
+
+            if ($t1A && $t1B) {
+                $final = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Gran Final',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t1B->id,
+                    'status' => 'scheduled',
+                ]);
+
+                $semi1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 1',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t2B->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'home',
+                ]);
+
+                $semi2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 2',
+                    'home_team_id' => $t1B->id,
+                    'away_team_id' => $t2A->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $createdMatches = [$semi1, $semi2, $final];
+            }
+        } elseif ($formatKey === 'final_2_directa' || $formatKey === 'liga_top2') {
+            $t1 = $groups[0][0]['team'] ?? null;
+            $t2 = isset($groups[1]) ? ($groups[1][0]['team'] ?? null) : ($groups[0][1]['team'] ?? null);
+
+            if ($t1 && $t2) {
+                $final = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Gran Final',
+                    'home_team_id' => $t1->id,
+                    'away_team_id' => $t2->id,
+                    'status' => 'scheduled',
+                ]);
+                $createdMatches = [$final];
+            }
+        } elseif ($formatKey === 'cuartos_8_cruzados') {
+            $gA = $groups[0] ?? [];
+            $gB = $groups[1] ?? [];
+            $gC = $groups[2] ?? [];
+            $gD = $groups[3] ?? [];
+
+            $t1A = $gA[0]['team'] ?? null;
+            $t2A = $gA[1]['team'] ?? $t1A;
+            $t1B = $gB[0]['team'] ?? null;
+            $t2B = $gB[1]['team'] ?? $t1B;
+            $t1C = $gC[0]['team'] ?? $t1A;
+            $t2C = $gC[1]['team'] ?? $t2A;
+            $t1D = $gD[0]['team'] ?? $t1B;
+            $t2D = $gD[1]['team'] ?? $t2B;
+
+            if ($t1A && $t1B) {
+                $final = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Gran Final',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t1B->id,
+                    'status' => 'scheduled',
+                ]);
+
+                $semi1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 1',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t1C->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'home',
+                ]);
+
+                $semi2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 2',
+                    'home_team_id' => $t1B->id,
+                    'away_team_id' => $t1D->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $qf1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t2B->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi1->id,
+                    'next_match_slot' => 'home',
+                ]);
+                $qf2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1C->id,
+                    'away_team_id' => $t2D->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi1->id,
+                    'next_match_slot' => 'away',
+                ]);
+                $qf3 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1B->id,
+                    'away_team_id' => $t2A->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi2->id,
+                    'next_match_slot' => 'home',
+                ]);
+                $qf4 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1D->id,
+                    'away_team_id' => $t2C->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi2->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $createdMatches = [$qf1, $qf2, $qf3, $qf4, $semi1, $semi2, $final];
+            }
+        } elseif ($formatKey === 'cuartos_8_mejores_3ros') {
+            $gA = $groups[0] ?? [];
+            $gB = $groups[1] ?? [];
+            $gC = $groups[2] ?? [];
+
+            $t1A = $gA[0]['team'] ?? null;
+            $t2A = $gA[1]['team'] ?? null;
+            $t1B = $gB[0]['team'] ?? null;
+            $t2B = $gB[1]['team'] ?? null;
+            $t1C = $gC[0]['team'] ?? null;
+            $t2C = $gC[1]['team'] ?? null;
+
+            $best3_1 = $bestThirds[0]['team'] ?? ($gA[2]['team'] ?? $t2A);
+            $best3_2 = $bestThirds[1]['team'] ?? ($gB[2]['team'] ?? $t2B);
+
+            if ($t1A && $t1B && $t1C) {
+                $final = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Gran Final',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t1B->id,
+                    'status' => 'scheduled',
+                ]);
+
+                $semi1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 1',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t1C->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'home',
+                ]);
+
+                $semi2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 2',
+                    'home_team_id' => $t1B->id,
+                    'away_team_id' => $t2A->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $qf1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $best3_2->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi1->id,
+                    'next_match_slot' => 'home',
+                ]);
+                $qf2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t2A->id,
+                    'away_team_id' => $t2B->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi1->id,
+                    'next_match_slot' => 'away',
+                ]);
+                $qf3 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1B->id,
+                    'away_team_id' => $t2C->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi2->id,
+                    'next_match_slot' => 'home',
+                ]);
+                $qf4 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1C->id,
+                    'away_team_id' => $best3_1->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi2->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $createdMatches = [$qf1, $qf2, $qf3, $qf4, $semi1, $semi2, $final];
+            }
+        } elseif ($formatKey === 'cuartos_8_amplio_2grupos') {
+            $gA = $groups[0] ?? [];
+            $gB = $groups[1] ?? [];
+
+            $t1A = $gA[0]['team'] ?? null;
+            $t2A = $gA[1]['team'] ?? null;
+            $t3A = $gA[2]['team'] ?? null;
+            $t4A = $gA[3]['team'] ?? null;
+
+            $t1B = $gB[0]['team'] ?? null;
+            $t2B = $gB[1]['team'] ?? null;
+            $t3B = $gB[2]['team'] ?? null;
+            $t4B = $gB[3]['team'] ?? null;
+
+            if ($t1A && $t1B) {
+                $final = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Gran Final',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t1B->id,
+                    'status' => 'scheduled',
+                ]);
+
+                $semi1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 1',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t2B->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'home',
+                ]);
+
+                $semi2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 2',
+                    'home_team_id' => $t1B->id,
+                    'away_team_id' => $t2A->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $qf1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1A->id,
+                    'away_team_id' => $t4B->id ?? $t2B->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi1->id,
+                    'next_match_slot' => 'home',
+                ]);
+                $qf2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t2B->id,
+                    'away_team_id' => $t3A->id ?? $t1A->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi1->id,
+                    'next_match_slot' => 'away',
+                ]);
+                $qf3 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t1B->id,
+                    'away_team_id' => $t4A->id ?? $t2A->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi2->id,
+                    'next_match_slot' => 'home',
+                ]);
+                $qf4 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Cuartos de final',
+                    'home_team_id' => $t2A->id,
+                    'away_team_id' => $t3B->id ?? $t1B->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $semi2->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $createdMatches = [$qf1, $qf2, $qf3, $qf4, $semi1, $semi2, $final];
+            }
+        } elseif ($formatKey === 'liga_top4') {
+            $standings = $this->computeStandings($tournament);
+            $t1 = $standings[0]['team'] ?? null;
+            $t2 = $standings[1]['team'] ?? null;
+            $t3 = $standings[2]['team'] ?? null;
+            $t4 = $standings[3]['team'] ?? null;
+
+            if ($t1 && $t2) {
+                $final = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Gran Final',
+                    'home_team_id' => $t1->id,
+                    'away_team_id' => $t2->id,
+                    'status' => 'scheduled',
+                ]);
+
+                $semi1 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 1',
+                    'home_team_id' => $t1->id,
+                    'away_team_id' => $t4 ? $t4->id : $t2->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'home',
+                ]);
+
+                $semi2 = GameMatch::create([
+                    'tournament_id' => $tournament->id,
+                    'stage' => 'Semifinal 2',
+                    'home_team_id' => $t2->id,
+                    'away_team_id' => $t3 ? $t3->id : $t1->id,
+                    'status' => 'scheduled',
+                    'next_match_id' => $final->id,
+                    'next_match_slot' => 'away',
+                ]);
+
+                $createdMatches = [$semi1, $semi2, $final];
+            }
+        }
+
+        // Registrar en configuración del torneo que la fase de grupos está cerrada
+        $settings = $tournament->settings ?? [];
+        $settings['group_stage_closed'] = true;
+        $settings['playoff_format'] = $formatKey;
+        $settings['playoffs_closed_at'] = now()->toDateTimeString();
+        $tournament->settings = $settings;
+        $tournament->save();
+
+        return $createdMatches;
+    }
+
+    /**
+     * Reopen group stage and clear unplayed playoff matches
+     */
+    public function reopenGroupStage(Tournament $tournament): void
+    {
+        GameMatch::where('tournament_id', $tournament->id)
+            ->whereIn('stage', [
+                'Gran Final', 'Gran Final Playoff', 'Final',
+                'Semifinal 1', 'Semifinal 2', 'Semifinal', 'Semifinales',
+                'Cuartos de final 1', 'Cuartos de final 2', 'Cuartos de final 3', 'Cuartos de final 4', 'Cuartos de final',
+                'Octavos de final'
+            ])
+            ->where('status', 'scheduled')
+            ->delete();
+
+        $settings = $tournament->settings ?? [];
+        $settings['group_stage_closed'] = false;
+        $tournament->settings = $settings;
+        $tournament->save();
     }
 
     public function advanceWinner(GameMatch $match): void

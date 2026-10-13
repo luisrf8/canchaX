@@ -27,7 +27,7 @@ class RealtimeController extends Controller
             @flush();
 
             $lastMatchVersion = null;
-            $lastNotificationId = null;
+            $lastNotificationId = auth()->check() ? (auth()->user()->notifications()->first()?->id ?? 'init') : null;
 
             // Stream for 25 seconds per connection request (reconnects automatically on client)
             $startTime = time();

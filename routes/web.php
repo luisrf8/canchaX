@@ -40,6 +40,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/tournaments/wizard', [TournamentController::class, 'wizard'])->name('tournaments.wizard');
     Route::post('/tournaments/wizard', [TournamentController::class, 'storeWizard'])->name('tournaments.storeWizard');
     Route::delete('/tournaments/{id}', [TournamentController::class, 'destroy'])->name('tournaments.destroy');
+    Route::post('/tournaments/{id}/close-groups', [TournamentController::class, 'closeGroupStage'])->name('tournaments.closeGroups');
+    Route::post('/tournaments/{id}/reopen-groups', [TournamentController::class, 'reopenGroupStage'])->name('tournaments.reopenGroups');
 
     // Collaborators & Sub-users Management
     Route::post('/tournaments/{id}/collaborators', [CollaboratorController::class, 'store'])->name('collaborators.store');
@@ -54,6 +56,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/matches/live/{id}/reopen', [MatchController::class, 'reopenMatch'])->name('matches.reopen');
     Route::delete('/matches/live/{id}/incident/{incidentId}', [MatchController::class, 'deleteIncident'])->name('matches.deleteIncident');
     Route::post('/matches/live/{id}/finish', [MatchController::class, 'finishMatch'])->name('matches.finish');
+    Route::post('/matches/{id}/direct-score', [MatchController::class, 'setDirectScore'])->name('matches.directScore');
 
     // Teams & Players Management
     Route::post('/teams', [TeamController::class, 'storeTeam'])->name('teams.store');
