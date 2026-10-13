@@ -39,6 +39,7 @@ class MatchController extends Controller
             Notification::send($uniqueRecipients, new MatchScoreUpdatedNotification($match, $message));
         }
     }
+
     public function index($tournamentId = null)
     {
         $tournament = $tournamentId ? Tournament::findOrFail($tournamentId) : Tournament::where('is_current', true)->first();
@@ -78,6 +79,12 @@ class MatchController extends Controller
             return response()->json(['error' => 'No tienes permisos para editar partidos en este torneo.'], 403);
         }
 
+        // Sincronizar tiempo informado por el cliente si fue enviado
+        if ($request->filled('elapsed_seconds')) {
+            $match->setExactSeconds((int) $request->input('elapsed_seconds'));
+        }
+        $minute = $match->getCurrentMinute();
+
         $action = $request->input('action');
         $teamSide = $request->input('team_side');
         $playerId = $request->input('player_id');
@@ -101,7 +108,7 @@ class MatchController extends Controller
                 'player_id' => $playerId,
                 'assist_player_id' => $assistId,
                 'type' => 'goal',
-                'minute' => (int) ceil($match->elapsed_seconds / 60),
+                'minute' => $minute,
                 'period' => $match->current_period,
                 'detail' => $detail,
             ]);
@@ -121,7 +128,7 @@ class MatchController extends Controller
                 'team_id' => $targetTeamId,
                 'player_id' => $playerId,
                 'type' => 'penalty_kick',
-                'minute' => (int) ceil($match->elapsed_seconds / 60),
+                'minute' => $minute,
                 'period' => 'Penales',
                 'detail' => $isGoal ? 'Penal Anotado ⚽' : 'Penal Fallado ❌',
             ]);
@@ -133,7 +140,7 @@ class MatchController extends Controller
                 'team_id' => $targetTeamId,
                 'player_id' => $playerId,
                 'type' => 'point_tennis',
-                'minute' => (int) ceil($match->elapsed_seconds / 60),
+                'minute' => $minute,
                 'period' => $match->current_period,
                 'detail' => $detail,
             ]);
@@ -151,7 +158,7 @@ class MatchController extends Controller
                 'team_id' => $targetTeamId,
                 'player_id' => $playerId,
                 'type' => 'ace',
-                'minute' => (int) ceil($match->elapsed_seconds / 60),
+                'minute' => $minute,
                 'period' => $match->current_period,
                 'detail' => 'Saque directo (Ace)',
             ]);
@@ -169,7 +176,7 @@ class MatchController extends Controller
                 'team_id' => $targetTeamId,
                 'player_id' => $playerId,
                 'type' => 'point_basket_' . $points,
-                'minute' => (int) ceil($match->elapsed_seconds / 60),
+                'minute' => $minute,
                 'period' => $match->current_period,
                 'detail' => "+{$points} Puntos",
             ]);
@@ -190,6 +197,8 @@ class MatchController extends Controller
             'tennis_data' => $match->tennis_data,
             'status' => $match->status,
             'current_period' => $match->current_period,
+            'elapsed_seconds' => $match->getLiveElapsedSeconds(),
+            'timer_running' => (bool) $match->timer_running,
         ]);
     }
 
@@ -199,6 +208,12 @@ class MatchController extends Controller
         if (!$match->tournament->canManage(auth()->user())) {
             return response()->json(['error' => 'No tienes permisos para editar partidos en este torneo.'], 403);
         }
+
+        // Sincronizar tiempo informado por el cliente si fue enviado
+        if ($request->filled('elapsed_seconds')) {
+            $match->setExactSeconds((int) $request->input('elapsed_seconds'));
+        }
+        $minute = $match->getCurrentMinute();
 
         $teamSide = $request->input('team_side');
         $playerId = $request->input('player_id');
@@ -212,7 +227,7 @@ class MatchController extends Controller
             'team_id' => $targetTeamId,
             'player_id' => $playerId,
             'type' => $cardType,
-            'minute' => (int) ceil($match->elapsed_seconds / 60),
+            'minute' => $minute,
             'period' => $match->current_period,
             'detail' => $reason,
         ]);
@@ -222,7 +237,12 @@ class MatchController extends Controller
         $msg = "Amonestación en {$match->tournament->name}: {$cardLabel} para {$teamName} ({$reason})";
         $this->notifyMatchSubscribers($match, $msg);
 
-        return response()->json(['success' => true, 'incident' => $incident]);
+        return response()->json([
+            'success' => true,
+            'incident' => $incident,
+            'elapsed_seconds' => $match->getLiveElapsedSeconds(),
+            'timer_running' => (bool) $match->timer_running,
+        ]);
     }
 
     public function updateStats(Request $request, $id)
@@ -258,18 +278,35 @@ class MatchController extends Controller
             return response()->json(['error' => 'No tienes permisos para controlar el cronómetro en este torneo.'], 403);
         }
 
-        if ($request->has('elapsed_seconds')) {
-            $match->elapsed_seconds = (int) $request->input('elapsed_seconds');
-        }
+        $clientSeconds = $request->has('elapsed_seconds') ? (int) $request->input('elapsed_seconds') : null;
+
         if ($request->has('timer_running')) {
-            $match->timer_running = (bool) $request->input('timer_running');
+            $running = (bool) $request->input('timer_running');
+            if ($running && !$match->timer_running) {
+                if ($clientSeconds !== null) {
+                    $match->elapsed_seconds = $clientSeconds;
+                }
+                $match->startTimer();
+            } elseif (!$running && $match->timer_running) {
+                $match->pauseTimer($clientSeconds);
+            } elseif ($clientSeconds !== null) {
+                $match->setExactSeconds($clientSeconds);
+            }
+        } elseif ($clientSeconds !== null) {
+            $match->setExactSeconds($clientSeconds);
         }
+
         if ($request->has('current_period')) {
             $match->current_period = $request->input('current_period');
+            $match->save();
         }
-        $match->save();
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => true,
+            'elapsed_seconds' => $match->getLiveElapsedSeconds(),
+            'timer_running' => (bool) $match->timer_running,
+            'current_period' => $match->current_period,
+        ]);
     }
 
     public function deleteIncident($id, $incidentId)
@@ -302,11 +339,94 @@ class MatchController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function updatePhase(Request $request, $id, TournamentEngine $engine)
+    {
+        $match = GameMatch::with(['tournament.collaborators'])->findOrFail($id);
+        if (!$match->tournament->canManage(auth()->user())) {
+            return response()->json(['error' => 'No tienes permisos para modificar este partido.'], 403);
+        }
+
+        $newPeriod = $request->input('period');
+        $actionNote = $request->input('note');
+        $startTimer = $request->boolean('start_timer', false);
+
+        if ($request->filled('elapsed_seconds')) {
+            $match->setExactSeconds((int) $request->input('elapsed_seconds'));
+        }
+
+        // Si se pide finalizar
+        if ($newPeriod === 'Finalizado') {
+            return $this->finishMatch($request, $id, $engine);
+        }
+
+        // Gestión del cronómetro según el periodo
+        if (in_array($newPeriod, ['Descanso', 'Descanso Extra'])) {
+            $match->pauseTimer();
+        } elseif (in_array($newPeriod, ['1T', '2T', '1TE', '2TE'])) {
+            if ($startTimer) {
+                $match->startTimer();
+            }
+        } elseif ($newPeriod === 'Penales') {
+            $match->pauseTimer();
+        }
+
+        $match->current_period = $newPeriod;
+        $match->status = 'live';
+        $match->save();
+
+        if ($actionNote) {
+            MatchIncident::create([
+                'game_match_id' => $match->id,
+                'team_id' => $match->home_team_id,
+                'type' => 'period_change',
+                'minute' => $match->getCurrentMinute(),
+                'period' => $newPeriod,
+                'detail' => $actionNote,
+            ]);
+        }
+
+        $msg = "Periodo actualizado en {$match->tournament->name}: {$newPeriod} ({$match->home_score} - {$match->away_score})";
+        $this->notifyMatchSubscribers($match, $msg);
+
+        return response()->json([
+            'success' => true,
+            'current_period' => $match->current_period,
+            'status' => $match->status,
+            'timer_running' => (bool) $match->timer_running,
+            'elapsed_seconds' => $match->getLiveElapsedSeconds(),
+        ]);
+    }
+
+    public function reopenMatch($id)
+    {
+        $match = GameMatch::with(['tournament.collaborators'])->findOrFail($id);
+        if (!$match->tournament->canManage(auth()->user())) {
+            return back()->withErrors(['auth' => 'No tienes permisos para reabrir este partido.']);
+        }
+
+        $match->status = 'live';
+        if ($match->current_period === 'Finalizado') {
+            $match->current_period = ($match->home_penalties > 0 || $match->away_penalties > 0) ? 'Penales' : '2T';
+        }
+        $match->winner_id = null;
+        $match->timer_running = false;
+        $match->save();
+
+        return redirect()->route('matches.live', $match->id)->with('success', 'Partido reactivado en vivo para arbitraje.');
+    }
+
     public function finishMatch(Request $request, $id, TournamentEngine $engine)
     {
         $match = GameMatch::with(['tournament.collaborators'])->findOrFail($id);
         if (!$match->tournament->canManage(auth()->user())) {
+            if ($request->expectsJson()) {
+                return response()->json(['error' => 'No autorizado'], 403);
+            }
             return back()->withErrors(['auth' => 'No tienes permisos para finalizar partidos en este torneo.']);
+        }
+
+        if ($request->filled('elapsed_seconds')) {
+            $match->setExactSeconds((int) $request->input('elapsed_seconds'));
         }
 
         $winnerSide = $request->input('winner');
@@ -315,7 +435,10 @@ class MatchController extends Controller
             $match->winner_id = $match->home_team_id;
         } elseif ($winnerSide === 'away') {
             $match->winner_id = $match->away_team_id;
+        } elseif ($winnerSide === 'draw') {
+            $match->winner_id = null;
         } else {
+            // Detección automática por goles o penales
             if ($match->home_score > $match->away_score) {
                 $match->winner_id = $match->home_team_id;
             } elseif ($match->away_score > $match->home_score) {
@@ -324,20 +447,43 @@ class MatchController extends Controller
                 $match->winner_id = $match->home_team_id;
             } elseif ($match->away_penalties > $match->home_penalties) {
                 $match->winner_id = $match->away_team_id;
+            } else {
+                $match->winner_id = null;
             }
         }
 
+        $match->elapsed_seconds = $match->getLiveElapsedSeconds();
         $match->status = 'finished';
         $match->current_period = 'Finalizado';
         $match->timer_running = false;
+        $match->timer_started_at = null;
         $match->save();
+
+        MatchIncident::create([
+            'game_match_id' => $match->id,
+            'team_id' => $match->winner_id ?? $match->home_team_id,
+            'type' => 'period_change',
+            'minute' => $match->getCurrentMinute(),
+            'period' => 'Finalizado',
+            'detail' => 'Pitazo Final: Partido Concluido Oficialmente',
+        ]);
 
         $engine->advanceWinner($match);
 
-        $winnerName = $match->winner->name ?? 'Empate';
-        $msg = "Partido Finalizado en {$match->tournament->name}: Marcador Final {$match->home_score} - {$match->away_score}. Ganador: {$winnerName}";
+        $winnerName = $match->winner->name ?? ($match->winner_id ? 'Definido' : 'Empate');
+        $msg = "Partido Finalizado en {$match->tournament->name}: Marcador Oficial {$match->home_score} - {$match->away_score}. " . ($match->winner_id ? "Ganador: {$winnerName}" : "Resultado: Empate");
         $this->notifyMatchSubscribers($match, $msg, true);
 
-        return redirect()->route('matches.live', $match->id)->with('success', 'Partido finalizado con éxito.');
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'status' => 'finished',
+                'current_period' => 'Finalizado',
+                'winner_id' => $match->winner_id,
+                'winner_name' => $winnerName,
+            ]);
+        }
+
+        return redirect()->route('matches.live', $match->id)->with('success', '¡Partido finalizado con éxito! El estatus ha cambiado a Finalizado.');
     }
 }

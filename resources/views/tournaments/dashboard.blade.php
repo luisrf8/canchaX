@@ -222,8 +222,8 @@
                         <span class="font-bold text-slate-900 text-right w-1/3 truncate">{{ $match->homeTeam->name ?? 'Por definir' }}</span>
                         
                         <div class="px-3 py-1 bg-slate-100 text-slate-900 font-mono font-bold rounded text-xs tabular-nums min-w-[70px] text-center">
-                            @if($match->status === 'finished')
-                                {{ $match->home_score }} - {{ $match->away_score }}
+                            @if($match->status === 'finished' || $match->current_period === 'Finalizado')
+                                <span class="text-slate-800">{{ $match->home_score }} - {{ $match->away_score }}</span>
                             @elseif($match->status === 'live')
                                 <span class="text-rose-600 font-extrabold">{{ $match->home_score }} - {{ $match->away_score }}</span>
                             @else
@@ -236,7 +236,7 @@
 
                     <div class="w-32 text-right">
                         <a href="{{ route('matches.live', $match->id) }}" class="text-xs font-semibold text-slate-600 hover:text-slate-900">
-                            {{ $match->status === 'live' ? 'En Vivo' : 'Ver Partido' }}
+                            {{ ($match->status === 'finished' || $match->current_period === 'Finalizado') ? 'Ver Resultado' : ($match->status === 'live' ? 'En Vivo' : 'Ver Partido') }}
                         </a>
                     </div>
                 </div>

@@ -2,12 +2,12 @@
     <div class="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px]">
         <span class="font-bold text-slate-500 uppercase">{{ $match->stage }}</span>
         
-        @if($match->status === 'live')
+        @if($match->status === 'live' && $match->current_period !== 'Finalizado')
             <span class="bg-rose-600 text-white font-extrabold text-[9px] px-1.5 py-0.5 rounded uppercase flex items-center">
                 <span class="w-1.5 h-1.5 rounded-full bg-white animate-ping mr-1"></span> EN VIVO
             </span>
-        @elseif($match->status === 'finished')
-            <span class="text-slate-400 font-semibold uppercase text-[10px]">FINALIZADO</span>
+        @elseif($match->status === 'finished' || $match->current_period === 'Finalizado')
+            <span class="text-slate-500 font-bold uppercase text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">✓ FINALIZADO</span>
         @else
             <span class="text-slate-400 font-semibold text-[10px]">{{ $match->scheduled_time ?? 'PROGRAMADO' }}</span>
         @endif
@@ -40,7 +40,7 @@
     <!-- Direct Click to Live Control Console -->
     <div class="bg-slate-50 px-3 py-2 border-t border-slate-100 flex justify-end">
         <a href="{{ route('matches.live', $match->id) }}" class="text-[11px] font-bold text-blue-900 hover:text-blue-950 transition">
-            {{ $match->status === 'live' ? 'Mesa de Control &rarr;' : 'Transmitir / Editar &rarr;' }}
+            {{ ($match->status === 'live' && $match->current_period !== 'Finalizado') ? 'Mesa de Control &rarr;' : (($match->status === 'finished' || $match->current_period === 'Finalizado') ? 'Ver Resumen &rarr;' : 'Transmitir / Editar &rarr;') }}
         </a>
     </div>
 </div>

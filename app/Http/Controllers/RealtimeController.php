@@ -37,7 +37,7 @@ class RealtimeController extends Controller
                 if ($matchId) {
                     $match = GameMatch::with(['incidents.player', 'incidents.team'])->find($matchId);
                     if ($match) {
-                        $currentVersion = md5($match->updated_at . '_' . $match->home_score . '_' . $match->away_score . '_' . $match->current_period . '_' . $match->elapsed_seconds . '_' . $match->incidents->count());
+                        $currentVersion = md5($match->updated_at . '_' . $match->home_score . '_' . $match->away_score . '_' . $match->current_period . '_' . $match->timer_running . '_' . $match->incidents->count());
                         if ($currentVersion !== $lastMatchVersion) {
                             $lastMatchVersion = $currentVersion;
                             echo "event: match_updated\n";
@@ -51,7 +51,7 @@ class RealtimeController extends Controller
                                 'away_sets' => $match->away_sets,
                                 'tennis_data' => $match->tennis_data,
                                 'current_period' => $match->current_period,
-                                'elapsed_seconds' => $match->elapsed_seconds,
+                                'elapsed_seconds' => $match->getLiveElapsedSeconds(),
                                 'timer_running' => (bool) $match->timer_running,
                                 'status' => $match->status,
                                 'incidents_count' => $match->incidents->count(),

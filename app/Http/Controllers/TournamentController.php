@@ -31,8 +31,12 @@ class TournamentController extends Controller
             ->orderBy('id', 'asc')
             ->get();
 
-        $liveMatches = $matches->where('status', 'live');
-        $finishedMatches = $matches->where('status', 'finished');
+        $liveMatches = $matches->filter(function ($m) {
+            return $m->status === 'live' && $m->current_period !== 'Finalizado';
+        });
+        $finishedMatches = $matches->filter(function ($m) {
+            return $m->status === 'finished' || $m->current_period === 'Finalizado';
+        });
         $totalGoals = $matches->sum('home_score') + $matches->sum('away_score');
         $totalPlayers = Player::whereIn('team_id', $teams->pluck('id'))->count();
 

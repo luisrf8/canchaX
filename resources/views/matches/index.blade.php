@@ -15,13 +15,13 @@
                 Todos ({{ $matches->count() }})
             </button>
             <button @click="filter = 'live'" :class="filter === 'live' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'" class="px-3 py-1.5 rounded-lg text-xs font-bold transition">
-                En Vivo ({{ $matches->where('status', 'live')->count() }})
+                En Vivo ({{ $matches->filter(fn($m) => $m->status === 'live' && $m->current_period !== 'Finalizado')->count() }})
             </button>
             <button @click="filter = 'scheduled'" :class="filter === 'scheduled' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'" class="px-3 py-1.5 rounded-lg text-xs font-bold transition">
                 Programados
             </button>
             <button @click="filter = 'finished'" :class="filter === 'finished' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'" class="px-3 py-1.5 rounded-lg text-xs font-bold transition">
-                Finalizados
+                Finalizados ({{ $matches->filter(fn($m) => $m->status === 'finished' || $m->current_period === 'Finalizado')->count() }})
             </button>
         </div>
     </div>
@@ -29,16 +29,22 @@
     <!-- Matches Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         @foreach($matches as $m)
-            <div x-show="filter === 'all' || filter === '{{ $m->status }}'" class="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4 hover:border-slate-400 transition">
+            @php
+                $isMatchFinished = $m->status === 'finished' || $m->current_period === 'Finalizado';
+                $matchFilterKey = $isMatchFinished ? 'finished' : $m->status;
+            @endphp
+            <div x-show="filter === 'all' || filter === '{{ $matchFilterKey }}'" class="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4 hover:border-slate-400 transition">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                     <span class="text-xs font-bold text-slate-500 uppercase">{{ $m->stage }}</span>
                     
-                    @if($m->status === 'live')
+                    @if($isMatchFinished)
+                        <span class="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded uppercase flex items-center">
+                            ✓ FINALIZADO
+                        </span>
+                    @elseif($m->status === 'live')
                         <span class="bg-rose-600 text-white text-[10px] font-extrabold px-2.5 py-0.5 rounded uppercase flex items-center">
                             <span class="w-1.5 h-1.5 rounded-full bg-white animate-ping mr-1"></span> EN VIVO
                         </span>
-                    @elseif($m->status === 'finished')
-                        <span class="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Finalizado</span>
                     @else
                         <span class="text-slate-400 text-[11px] font-semibold">Programado</span>
                     @endif
@@ -76,12 +82,12 @@
                         @if($m->winner)
                             Ganador: <strong class="text-slate-900">{{ $m->winner->name }}</strong>
                         @else
-                            Periodo: {{ $m->current_period }}
+                            Periodo: {{ $isMatchFinished ? 'Finalizado' : $m->current_period }}
                         @endif
                     </span>
 
                     <a href="{{ route('matches.live', $m->id) }}" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg transition shadow-xs">
-                        {{ $m->status === 'live' ? 'Mesa en Vivo &rarr;' : 'Transmitir / Arbitrar' }}
+                        {{ $isMatchFinished ? 'Ver Resumen / Acta' : ($m->status === 'live' ? 'Mesa en Vivo →' : 'Transmitir / Arbitrar') }}
                     </a>
                 </div>
             </div>

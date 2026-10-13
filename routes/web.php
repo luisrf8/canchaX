@@ -50,6 +50,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/matches/live/{id}/card', [MatchController::class, 'addCard'])->name('matches.card');
     Route::post('/matches/live/{id}/stats', [MatchController::class, 'updateStats'])->name('matches.stats');
     Route::post('/matches/live/{id}/timer', [MatchController::class, 'updateTimer'])->name('matches.timer');
+    Route::post('/matches/live/{id}/phase', [MatchController::class, 'updatePhase'])->name('matches.phase');
+    Route::post('/matches/live/{id}/reopen', [MatchController::class, 'reopenMatch'])->name('matches.reopen');
     Route::delete('/matches/live/{id}/incident/{incidentId}', [MatchController::class, 'deleteIncident'])->name('matches.deleteIncident');
     Route::post('/matches/live/{id}/finish', [MatchController::class, 'finishMatch'])->name('matches.finish');
 
