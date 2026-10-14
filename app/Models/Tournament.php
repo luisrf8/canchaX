@@ -15,6 +15,7 @@ class Tournament extends Model
         'sport',
         'format',
         'status',
+        'is_hidden',
         'location',
         'description',
         'is_current',
@@ -24,7 +25,38 @@ class Tournament extends Model
     protected $casts = [
         'settings' => 'array',
         'is_current' => 'boolean',
+        'is_hidden' => 'boolean',
     ];
+
+    public function isPast(): bool
+    {
+        if ($this->status === 'completed' || $this->status === 'archived') {
+            return true;
+        }
+
+        if ($this->relationLoaded('matches')) {
+            $total = $this->matches->count();
+            if ($total === 0) {
+                return false;
+            }
+            $unfinished = $this->matches->filter(function ($m) {
+                return $m->status !== 'finished' && $m->current_period !== 'Finalizado';
+            })->count();
+            return $unfinished === 0;
+        }
+
+        $totalMatches = $this->matches()->count();
+        if ($totalMatches === 0) {
+            return false;
+        }
+
+        $unfinished = $this->matches()
+            ->where('status', '!=', 'finished')
+            ->where('current_period', '!=', 'Finalizado')
+            ->count();
+
+        return $unfinished === 0;
+    }
 
     public function organizer(): BelongsTo
     {

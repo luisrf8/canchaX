@@ -68,19 +68,25 @@
                 <h2 class="text-2xl font-extrabold text-slate-900 tracking-tight">Torneos Públicos Disponibles</h2>
             </div>
 
-            <!-- Sport Filters -->
-            <div class="mt-4 sm:mt-0 flex flex-wrap gap-2 text-xs">
-                <a href="{{ route('landing') }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ !$sport ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+            <!-- Sport & Status Filters -->
+            <div class="mt-4 sm:mt-0 flex flex-wrap items-center gap-2 text-xs">
+                <a href="{{ route('landing', array_filter(['sport' => null, 'hide_past' => $hidePast ? 1 : null])) }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ !$sport ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
                     Todos
                 </a>
-                <a href="{{ route('landing', ['sport' => 'futbol']) }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ $sport === 'futbol' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                <a href="{{ route('landing', array_filter(['sport' => 'futbol', 'hide_past' => $hidePast ? 1 : null])) }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ $sport === 'futbol' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
                     Fútbol
                 </a>
-                <a href="{{ route('landing', ['sport' => 'tenis']) }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ $sport === 'tenis' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                <a href="{{ route('landing', array_filter(['sport' => 'tenis', 'hide_past' => $hidePast ? 1 : null])) }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ $sport === 'tenis' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
                     Tenis
                 </a>
-                <a href="{{ route('landing', ['sport' => 'padel']) }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ $sport === 'padel' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
+                <a href="{{ route('landing', array_filter(['sport' => 'padel', 'hide_past' => $hidePast ? 1 : null])) }}" class="px-3 py-1.5 rounded-lg font-bold transition {{ $sport === 'padel' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200' }}">
                     Pádel
+                </a>
+
+                <div class="h-4 w-px bg-slate-300 mx-1 hidden sm:block"></div>
+
+                <a href="{{ route('landing', array_filter(['sport' => $sport, 'hide_past' => $hidePast ? null : 1])) }}" class="px-3 py-1.5 rounded-lg font-bold border transition flex items-center space-x-1.5 {{ $hidePast ? 'bg-amber-50 text-amber-900 border-amber-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50' }}" title="Ocultar torneos finalizados y pasados">
+                    <span>{{ $hidePast ? '✓ Ocultando pasados' : 'Ocultar pasados' }}</span>
                 </a>
             </div>
         </div>

@@ -11,14 +11,28 @@
     <!-- Header Banner -->
     <div class="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between shadow-lg relative overflow-hidden border border-slate-800">
         <div class="space-y-2 z-10">
-            <div class="flex items-center space-x-3">
+            <div class="flex flex-wrap items-center gap-2">
                 <span class="bg-blue-900 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
                     {{ strtoupper($currentTournament->sport) }} &bull; {{ strtoupper($currentTournament->format) }}
                 </span>
-                <span class="text-emerald-400 text-xs font-semibold flex items-center">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1.5"></span>
-                    Torneo En Curso
-                </span>
+
+                @if($currentTournament->isPast())
+                    <span class="text-slate-300 text-xs font-semibold flex items-center bg-slate-800 border border-slate-700 px-2.5 py-0.5 rounded-full">
+                        <span class="w-2 h-2 rounded-full bg-slate-400 mr-1.5"></span>
+                        🏁 Torneo Pasado / Finalizado
+                    </span>
+                @else
+                    <span class="text-emerald-400 text-xs font-semibold flex items-center bg-emerald-950/40 border border-emerald-800/60 px-2.5 py-0.5 rounded-full">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1.5"></span>
+                        Torneo En Curso
+                    </span>
+                @endif
+
+                @if($currentTournament->is_hidden)
+                    <span class="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center">
+                        👁️ Oculto del Catálogo
+                    </span>
+                @endif
             </div>
             <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">{{ $currentTournament->name }}</h1>
             <p class="text-slate-400 text-xs sm:text-sm max-w-xl">
@@ -34,7 +48,7 @@
             @endif
         </div>
 
-        <div class="mt-6 md:mt-0 flex flex-wrap gap-3 z-10" x-data="{
+        <div class="mt-6 md:mt-0 flex flex-wrap gap-2.5 z-10" x-data="{
             subscribed: {{ auth()->check() && auth()->user()->isSubscribedTo($currentTournament->id) ? 'true' : 'false' }},
             toggleSub() {
                 fetch('{{ route('subscriptions.toggle') }}', {
@@ -55,22 +69,77 @@
                 });
             }
         }">
-            <button @click="toggleSub()" :class="subscribed ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700'" class="px-4 py-2 text-xs font-bold rounded-lg transition shadow-sm flex items-center space-x-1.5">
-                <span x-text="subscribed ? '🔔 Siguiendo (Notificaciones Activas)' : '🔔 Activar Notificaciones'"></span>
+            <button @click="toggleSub()" :class="subscribed ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700'" class="px-3.5 py-2 text-xs font-bold rounded-lg transition shadow-sm flex items-center space-x-1.5">
+                <span x-text="subscribed ? '🔔 Siguiendo' : '🔔 Activar Notificaciones'"></span>
             </button>
-            <a href="{{ route('tournaments.bracket') }}" class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition shadow-sm">
+            <a href="{{ route('tournaments.bracket') }}" class="px-3.5 py-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-lg transition shadow-sm">
                 Ver Llaves / Fixture
             </a>
-            <a href="{{ route('matches.index') }}" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg border border-slate-700 transition">
+            <a href="{{ route('matches.index') }}" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-lg border border-slate-700 transition">
                 Mesa de Control
             </a>
             @if($isOwner)
-                <button @click="collaboratorModal = true" class="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg transition shadow-sm">
+                <button @click="collaboratorModal = true" class="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg transition shadow-sm">
                     + Colaboradores ({{ $currentTournament->collaborators->count() }})
                 </button>
             @endif
+
+            @if($isManager)
+                <div class="relative" x-data="{ optsOpen: false }">
+                    <button @click="optsOpen = !optsOpen" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition flex items-center space-x-1.5 shadow-sm">
+                        <span>⚙️ Gestionar</span>
+                        <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+                    <div x-show="optsOpen" @click.away="optsOpen = false" x-cloak class="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-1.5 z-50 text-xs">
+                        <!-- Toggle Hide/Unhide -->
+                        <form method="POST" action="{{ route('tournaments.toggleHide', $currentTournament->id) }}">
+                            @csrf
+                            <button type="submit" class="w-full text-left px-4 py-2 hover:bg-slate-800 text-slate-200 flex items-center space-x-2 transition">
+                                <span>{{ $currentTournament->is_hidden ? '👁️ Desocultar Torneo' : '👁️ Ocultar Torneo' }}</span>
+                            </button>
+                        </form>
+
+                        <!-- Toggle Status -->
+                        <form method="POST" action="{{ route('tournaments.toggleStatus', $currentTournament->id) }}">
+                            @csrf
+                            <button type="submit" class="w-full text-left px-4 py-2 hover:bg-slate-800 text-slate-200 flex items-center space-x-2 transition">
+                                <span>{{ $currentTournament->isPast() ? '⚡ Reabrir / Poner Activo' : '🏁 Marcar como Finalizado' }}</span>
+                            </button>
+                        </form>
+
+                        @if($isOwner)
+                            <div class="border-t border-slate-800 my-1"></div>
+                            <!-- Delete Tournament -->
+                            <form method="POST" action="{{ route('tournaments.destroy', $currentTournament->id) }}" onsubmit="return confirm('¿Estás seguro de ELIMINAR permanentemente el torneo \'{{ addslashes($currentTournament->name) }}\'? Esta acción no se puede deshacer y borrará todos sus partidos y equipos.');">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="w-full text-left px-4 py-2 hover:bg-rose-950/40 text-rose-400 font-bold flex items-center space-x-2 transition">
+                                    <span>🗑️ Eliminar Torneo</span>
+                                </button>
+                            </form>
+                        @endif
+                    </div>
+                </div>
+            @endif
         </div>
     </div>
+
+    @if($currentTournament->is_hidden)
+        <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+            <div class="flex items-center space-x-2">
+                <span class="text-base">👁️</span>
+                <span><strong>Este torneo está OCULTO:</strong> No aparece en el catálogo público ni en exploradores generales. Solo los organizadores o quienes tengan el enlace directo pueden verlo.</span>
+            </div>
+            @if($isManager)
+                <form method="POST" action="{{ route('tournaments.toggleHide', $currentTournament->id) }}" class="inline flex-shrink-0">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-lg hover:bg-amber-400 transition text-xs shadow-xs">
+                        Hacer Público / Desocultar
+                    </button>
+                </form>
+            @endif
+        </div>
+    @endif
 
     <!-- Metrics Cards Grid -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">

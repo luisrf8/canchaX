@@ -14,8 +14,18 @@ class LandingController extends Controller
     {
         $sport = $request->input('sport');
         $status = $request->input('status');
+        $hidePast = $request->boolean('hide_past', false);
+        $showHidden = $request->boolean('show_hidden', false);
 
         $query = Tournament::with(['organizer', 'teams', 'matches']);
+
+        if (!$showHidden) {
+            $query->where('is_hidden', false);
+        }
+
+        if ($hidePast) {
+            $query->where('status', '!=', 'completed')->where('status', '!=', 'archived');
+        }
 
         if ($sport) {
             $query->where('sport', $sport);
@@ -45,16 +55,24 @@ class LandingController extends Controller
             'totalTeams',
             'venues',
             'sport',
-            'status'
+            'status',
+            'hidePast'
         ));
     }
 
     public function showOrganizer($id)
     {
         $organizer = User::findOrFail($id);
-        $activeTournaments = Tournament::where('user_id', $organizer->id)->where('status', 'active')->get();
-        $completedTournaments = Tournament::where('user_id', $organizer->id)->where('status', 'completed')->get();
-        $allTournaments = Tournament::where('user_id', $organizer->id)->get();
+        $isOwnerOrAdmin = auth()->check() && (auth()->id() === (int)$id || auth()->user()->role === 'admin');
+
+        $baseQuery = Tournament::where('user_id', $organizer->id);
+        if (!$isOwnerOrAdmin) {
+            $baseQuery->where('is_hidden', false);
+        }
+
+        $activeTournaments = (clone $baseQuery)->where('status', 'active')->get();
+        $completedTournaments = (clone $baseQuery)->where('status', 'completed')->get();
+        $allTournaments = (clone $baseQuery)->get();
 
         return view('organizers.show', compact('organizer', 'activeTournaments', 'completedTournaments', 'allTournaments'));
     }

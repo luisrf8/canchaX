@@ -24,7 +24,7 @@ class TournamentController extends Controller
             return redirect()->route('tournaments.wizard');
         }
 
-        $allTournaments = Tournament::orderBy('id', 'desc')->get();
+        $allTournaments = Tournament::with('matches')->orderBy('id', 'desc')->get();
         $teams = Team::where('tournament_id', $currentTournament->id)->get();
         $matches = GameMatch::with(['homeTeam', 'awayTeam', 'winner'])
             ->where('tournament_id', $currentTournament->id)
@@ -72,7 +72,7 @@ class TournamentController extends Controller
 
     public function wizard()
     {
-        $allTournaments = Tournament::orderBy('id', 'desc')->get();
+        $allTournaments = Tournament::with('matches')->orderBy('id', 'desc')->get();
         return view('tournaments.wizard', compact('allTournaments'));
     }
 
@@ -140,7 +140,7 @@ class TournamentController extends Controller
             return redirect()->route('tournaments.wizard');
         }
 
-        $allTournaments = Tournament::orderBy('id', 'desc')->get();
+        $allTournaments = Tournament::with('matches')->orderBy('id', 'desc')->get();
         $matches = GameMatch::with(['homeTeam', 'awayTeam', 'winner'])
             ->where('tournament_id', $tournament->id)
             ->orderBy('id', 'asc')
@@ -176,7 +176,7 @@ class TournamentController extends Controller
             return redirect()->route('tournaments.wizard');
         }
 
-        $allTournaments = Tournament::orderBy('id', 'desc')->get();
+        $allTournaments = Tournament::with('matches')->orderBy('id', 'desc')->get();
         $teams = Team::where('tournament_id', $tournament->id)->get();
         $matches = GameMatch::where('tournament_id', $tournament->id)->get();
 
@@ -427,19 +427,69 @@ class TournamentController extends Controller
         return redirect()->route('tournaments.bracket', $tournament->id)->with('success', 'Fase de grupos reabierta. Se restauró el estado y se removieron llaves no jugadas.');
     }
 
+    public function toggleHide($id)
+    {
+        $tournament = Tournament::findOrFail($id);
+        if (!$tournament->canManage(auth()->user())) {
+            return back()->with('error', 'No tienes permisos para modificar este torneo.');
+        }
+
+        $tournament->is_hidden = !$tournament->is_hidden;
+        $tournament->save();
+
+        $msg = $tournament->is_hidden 
+            ? "Torneo '{$tournament->name}' ha sido ocultado del catálogo general." 
+            : "Torneo '{$tournament->name}' ahora está visible en el catálogo general.";
+
+        return back()->with('success', $msg);
+    }
+
+    public function toggleStatus(Request $request, $id)
+    {
+        $tournament = Tournament::findOrFail($id);
+        if (!$tournament->canManage(auth()->user())) {
+            return back()->with('error', 'No tienes permisos para modificar este torneo.');
+        }
+
+        $newStatus = $request->input('status');
+        if (!in_array($newStatus, ['active', 'completed', 'archived'])) {
+            $newStatus = $tournament->status === 'active' ? 'completed' : 'active';
+        }
+
+        $tournament->status = $newStatus;
+        if ($newStatus === 'completed' && $request->boolean('hide_too')) {
+            $tournament->is_hidden = true;
+        }
+        $tournament->save();
+
+        $statusLabel = $newStatus === 'completed' ? 'Finalizado / Pasado' : ($newStatus === 'archived' ? 'Archivado' : 'En Curso / Activo');
+
+        return back()->with('success', "Estado del torneo '{$tournament->name}' actualizado a: {$statusLabel}.");
+    }
+
     public function destroy($id)
     {
         $tournament = Tournament::findOrFail($id);
+        if (!$tournament->canManage(auth()->user())) {
+            return back()->with('error', 'No tienes permisos para eliminar este torneo.');
+        }
+
         $wasCurrent = $tournament->is_current;
+        $tournamentName = $tournament->name;
         $tournament->delete();
 
         if ($wasCurrent) {
-            $next = Tournament::orderBy('id', 'desc')->first();
+            $next = Tournament::where('is_hidden', false)->orderBy('id', 'desc')->first()
+                ?? Tournament::orderBy('id', 'desc')->first();
             if ($next) {
+                Tournament::query()->update(['is_current' => false]);
                 $next->update(['is_current' => true]);
+                return redirect()->route('dashboard')->with('success', "Torneo '{$tournamentName}' eliminado exitosamente.");
+            } else {
+                return redirect()->route('tournaments.wizard')->with('info', "Torneo '{$tournamentName}' eliminado. No quedan torneos registrados.");
             }
         }
 
-        return redirect()->route('dashboard')->with('success', 'Torneo eliminado.');
+        return back()->with('success', "Torneo '{$tournamentName}' eliminado exitosamente.");
     }
 }

@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CollaboratorController;
 use App\Http\Controllers\LandingController;
 use App\Http\Controllers\MatchController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TournamentController;
 use App\Http\Controllers\RealtimeController;
@@ -37,9 +38,15 @@ Route::get('/teams/{tournamentId?}', [TeamController::class, 'index'])->name('te
 
 // Protected Routes (Require Authentication)
 Route::middleware('auth')->group(function () {
+    // User Profile Management
+    Route::get('/profile/edit', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::post('/profile', [ProfileController::class, 'update'])->name('profile.update');
+
     Route::get('/tournaments/wizard', [TournamentController::class, 'wizard'])->name('tournaments.wizard');
     Route::post('/tournaments/wizard', [TournamentController::class, 'storeWizard'])->name('tournaments.storeWizard');
     Route::delete('/tournaments/{id}', [TournamentController::class, 'destroy'])->name('tournaments.destroy');
+    Route::post('/tournaments/{id}/toggle-hide', [TournamentController::class, 'toggleHide'])->name('tournaments.toggleHide');
+    Route::post('/tournaments/{id}/toggle-status', [TournamentController::class, 'toggleStatus'])->name('tournaments.toggleStatus');
     Route::post('/tournaments/{id}/close-groups', [TournamentController::class, 'closeGroupStage'])->name('tournaments.closeGroups');
     Route::post('/tournaments/{id}/reopen-groups', [TournamentController::class, 'reopenGroupStage'])->name('tournaments.reopenGroups');
 

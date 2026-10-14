@@ -47,7 +47,7 @@ class MatchController extends Controller
             return redirect()->route('tournaments.wizard');
         }
 
-        $allTournaments = Tournament::orderBy('id', 'desc')->get();
+        $allTournaments = Tournament::with('matches')->orderBy('id', 'desc')->get();
         $matches = GameMatch::with(['homeTeam', 'awayTeam', 'winner'])
             ->where('tournament_id', $tournament->id)
             ->orderBy('id', 'asc')
@@ -62,7 +62,7 @@ class MatchController extends Controller
             ->findOrFail($id);
 
         $tournament = $match->tournament;
-        $allTournaments = Tournament::orderBy('id', 'desc')->get();
+        $allTournaments = Tournament::with('matches')->orderBy('id', 'desc')->get();
 
         if ($match->status === 'scheduled') {
             $match->status = 'live';

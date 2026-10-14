@@ -16,7 +16,7 @@ class TeamController extends Controller
             return redirect()->route('tournaments.wizard');
         }
 
-        $allTournaments = Tournament::orderBy('id', 'desc')->get();
+        $allTournaments = Tournament::with('matches')->orderBy('id', 'desc')->get();
         $teams = Team::with('players')->where('tournament_id', $tournament->id)->get();
 
         return view('teams.index', compact('tournament', 'allTournaments', 'teams'));
